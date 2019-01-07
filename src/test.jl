@@ -19,12 +19,15 @@ end
 
 ACHRSampler(prob::ConstrainedFoodWeb) = ACHRSampler(prob, nullspace(prob.E), [], fill(NaN, size(prob.E, 2)))
 
+is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
+
 #TODO: if I call this more than once, I will get double the warm up points
 # Try to build the warm up arrays
 function warmup_sampler!(samp::ACHRSampler)
     # # Use JuMP to solve the linear programming problem
     m = Model(solver = ClpSolver())
-    @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
+    #TODO: figure out how to get the iterative lower and upper bounds like samp.prob.lower[i]
+    @variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
     @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
@@ -38,10 +41,11 @@ function warmup_sampler!(samp::ACHRSampler)
         end
     end
     #TODO: Remove redundent search directions
+    unique!(samp.warmup)
     #keep = np.logical_not(self._is_redundant(self.warmup))
     #self.warmup = self.warmup[keep, :]
     #self.n_warmup = self.warmup.shape[0]
-    #samp.center = mean(samp.warmup)
+    samp.center = mean(samp.warmup)
     return
 end
 
@@ -50,33 +54,35 @@ end
 """
 function step(sampler, x, Δ)
     prob = sampler.prob
-    # permissible scalings for staying in variable bounds
-    vscale = vcat((prob.lower .- x) ./ Δ,
-                  (prob.upper .- x) ./ Δ)
-    pos_scale = vscale[vscale .> 0]
-    neg_scale = vscale[vscale .<= 0]
-    if length(pos_scale) > 0
-        max_neg = maxium(neg_scale)
-    else
-        max_neg = 0.0
+    lmin = -Inf
+    lmax = Inf
+    for i in 1:length(Δ)
+        if Δ[i] > 0
+            # scale minimum will satisfy: `x + scale * Δ ≥ lower` <=> `(lower - x) / Δ ≤ scale`
+            scale = (prob.lower[i] - x[i]) / Δ[i]
+            if scale > lmin
+                lmin = scale
+            end
+        elseif Δ[i] < 0
+            # scale maximum will satisfy `(lower - x) / Δ ≥ scale`
+            scale = (prob.lower[i] - x[i]) / Δ[i]
+            if scale < lmax
+                lmax = scale
+            end
+        end
     end
-    if length(neg_scale) > 0
-        min_pos = maxium(neg_scale)
+    if lmin != lmax
+        scale = rand(Uniform(lmin, lmax))
     else
-        min_pos = 0.0
+        scale = lmin
     end
-    if min_pos != 0 && max_neg != 0
-        scale = rand(Uniform(min_pos, max_neg))
-    else
-        scale = 0.0
-    end
-
     return x + scale * Δ
 end
 
-
-S = 20
-pnet = cascade_network(S, 0.25)
+#S = 10
+#pnet = cascade_network(S, 0.7)
+S = 3
+pnet = PredationMatrix([0 1 1; 0 0 1; 0 0 0])
 biomass = rand(S)
 growth = fill(1.0, S)
 for s in basal_species(pnet)
@@ -89,10 +95,14 @@ size(model.E, 2)
 sampler = ACHRSampler(model)
 @time warmup_sampler!(sampler)
 
-sampler.warmup
-sampler.center
-Δ = sample(sampler.warmup) - sampler.center
+xout = [sample(sampler.warmup)]
+for i in 1:100000
+    Δ = sample(sampler.warmup) - sampler.center
+    x_next = step(sampler, xout[end], Δ)
+    push!(xout, copy(x_next))
+end
+xout
+[is_feasible(sampler.prob, xout[i]) for i in 1:length(xout)]
 
-x = sample(sampler.warmup)
-
-step(sampler, x, Δ)
+using PyPlot
+plot(xout[50000:end])

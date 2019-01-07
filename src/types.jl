@@ -9,8 +9,8 @@ Problem = namedtuple("Problem",
     Defines the matrix representation of a sampling problem.
 
 # Attributes
-- equalities::Array
-    All equality constraints in the model.
+- E::Matrix
+    All equality constraints in the model, so that `E * x = b`.
 - b::Array
     The right side of the equality constraints.
 - inequalities::Array
@@ -19,7 +19,7 @@ Problem = namedtuple("Problem",
     The lower and upper bounds for the inequality constraints.
 - variable_bounds::Array
     The lower and upper bounds for the variables.
-- nullspace::Matrix
+- Z::Matrix
     A matrix containing the nullspace of the equality constraints. Each column
     is one basis vector.
 - homogeneous::Bool
@@ -27,13 +27,13 @@ Problem = namedtuple("Problem",
     exist no non-zero fixed variables or constraints.
 """
 struct HRProblem
-    equalities::Vector{Float64}
+    E::Vector{Float64}
     b::Vector{Float64}
     inequalities::Vector{Float64}
     bounds::Vector{Vector{Float64}} # [lb::Vector, ub::Vector]
     variable_fixed::Vector{Float64}
     variable_bounds::Vector{Vector{Float64}}
-    null_basis::Matrix{Float64}
+    Z::Matrix{Float64}
     homogeneous::Bool
 end
 
