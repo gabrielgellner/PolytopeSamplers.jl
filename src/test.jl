@@ -13,11 +13,12 @@ mutable struct ACHRSampler
     #bounds_tol? Or is this part of prob?
     warmup::Vector{Vector{Float64}}
     center::Vector{Float64}
-    #cur?
+    n_samples::Int # how many samples have already been generated, used in center calculations
+    prev::Vector{Float64}
     #points?
 end
 
-ACHRSampler(prob::ConstrainedFoodWeb) = ACHRSampler(prob, nullspace(prob.E), [], fill(NaN, size(prob.E, 2)))
+ACHRSampler(prob::ConstrainedFoodWeb) = ACHRSampler(prob, nullspace(prob.E), [], fill(NaN, size(prob.E, 2)), 0, fill(NaN, size(prob.E, 2)))
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
 
@@ -45,29 +46,42 @@ function warmup_sampler!(samp::ACHRSampler)
     #keep = np.logical_not(self._is_redundant(self.warmup))
     #self.warmup = self.warmup[keep, :]
     #self.n_warmup = self.warmup.shape[0]
+    samp.n_samples = length(samp.warmup)
     samp.center = mean(samp.warmup)
+    # start at the current estimated center
+    samp.prev = copy(samp.center)
     return
 end
 
 """
     Sample a new feasible point from the point `x` in direction `Δ`.
 """
-function step(sampler, x, Δ)
-    prob = sampler.prob
+function step(samp, Δ)
+    prob = samp.prob
     lmin = -Inf
     lmax = Inf
     for i in 1:length(Δ)
+        if Δ[i] ≈ 0
+            @show "delta 0"
+            continue
+        end
+        scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
+        scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
         if Δ[i] > 0
-            # scale minimum will satisfy: `x + scale * Δ ≥ lower` <=> `(lower - x) / Δ ≤ scale`
-            scale = (prob.lower[i] - x[i]) / Δ[i]
-            if scale > lmin
-                lmin = scale
+            # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
+            if scale_low > lmin
+                lmin = scale_low
+            end
+            if scale_upp < lmax
+                lmax = scale_upp
             end
         elseif Δ[i] < 0
-            # scale maximum will satisfy `(lower - x) / Δ ≥ scale`
-            scale = (prob.lower[i] - x[i]) / Δ[i]
-            if scale < lmax
-                lmax = scale
+            # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
+            if scale_low < lmax
+                lmax = scale_low
+            end
+            if scale_upp > lmin
+                lmin = scale_upp
             end
         end
     end
@@ -76,13 +90,25 @@ function step(sampler, x, Δ)
     else
         scale = lmin
     end
-    return x + scale * Δ
+    #@show (lmin, lmax)
+    #@show samp.prev + lmin * Δ
+    #@show samp.prev + lmax * Δ
+    next = samp.prev + scale * Δ
+    #@show is_feasible(samp.prob, next)
+    return next
 end
 
-#S = 10
-#pnet = cascade_network(S, 0.7)
-S = 3
-pnet = PredationMatrix([0 1 1; 0 0 1; 0 0 0])
+function update!(samp::ACHRSampler, Δ)
+    samp.prev = step(samp, Δ)
+    # update the center given the new iteration
+    samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
+    samp.n_samples += 1
+end
+
+S = 50
+pnet = cascade_network(S, 0.3)
+#S = 3
+#pnet = PredationMatrix([0 1 1; 0 0 1; 0 0 0])
 biomass = rand(S)
 growth = fill(1.0, S)
 for s in basal_species(pnet)
@@ -95,14 +121,19 @@ size(model.E, 2)
 sampler = ACHRSampler(model)
 @time warmup_sampler!(sampler)
 
-xout = [sample(sampler.warmup)]
-for i in 1:100000
+xout = [copy(sampler.prev)]
+@time for i in 1:1_000_000
     Δ = sample(sampler.warmup) - sampler.center
-    x_next = step(sampler, xout[end], Δ)
-    push!(xout, copy(x_next))
+    update!(sampler, Δ)
+    push!(xout, copy(sampler.prev))
 end
 xout
-[is_feasible(sampler.prob, xout[i]) for i in 1:length(xout)]
-
+sampler.center
 using PyPlot
-plot(xout[50000:end])
+xdata = hcat(xout...)'
+plot(xdata[(end - 500000):100:end, 1])
+
+
+[is_feasible(sampler.prob, xout[i]) for i in 1:length(xout)]
+Δ = sample(sampler.warmup) - sampler.center
+step(sampler, Δ)
