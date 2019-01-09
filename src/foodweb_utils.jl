@@ -51,6 +51,7 @@ struct ConstrainedFoodWeb
     upper::Vector{Float64}
     # equality coefficients
     E::Matrix{Float64}
+    S::Int
 end
 
 function ConstrainedFoodWeb(pmat, b::Vector{T}, g::Vector{T}, lower::T, upper::T) where T
@@ -63,5 +64,19 @@ function ConstrainedFoodWeb(pmat, b::Vector{T}, g::Vector{T}, lower::T, upper::T
     vupper = fill(upper, size(E, 2))
     @assert length(b) == length(g) == pmat.S
     @assert length(vlower) == length(vupper) == size(E, 2)
-    return ConstrainedFoodWeb(net, b, g, vlower, vupper, E)
+    return ConstrainedFoodWeb(net, b, g, vlower, vupper, E, pmat.S)
 end
+
+function α_mat(web::ConstrainedFoodWeb, samp)
+    A = fill(0.0, web.S, web.S)
+    cur = 1
+    for i in 1:web.S, j in 1:web.S
+        if web.net[i, j] != 0
+            A[i, j] = web.net[i, j] * samp[cur]
+            cur += 1
+        end
+    end
+    return A
+end
+
+cmat(web::ConstrainedFoodWeb, samp) = α_mat(web, samp) .* web.b'

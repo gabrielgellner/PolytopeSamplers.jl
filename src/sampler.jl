@@ -34,7 +34,10 @@ function warmup_sampler!(samp::ACHRSampler; init = :center)
     for sense in (:Min, :Max)
         for i in 1:size(samp.prob.E, 2)
             @objective(m, sense, α[i])
-            status = solve(m) #, suppress_warnings = true)
+            status = solve(m, suppress_warnings = true)
+            if status == :Infeasible
+                return :Infeasible
+            end
             if status == :Optimal
                 push!(samp.warmup, getvalue(α))
             end
@@ -53,7 +56,7 @@ function warmup_sampler!(samp::ACHRSampler; init = :center)
     elseif init == :bound
         samp.prev = copy(sample(samp.warmup))
     end
-    return
+    return :Feasible
 end
 
 """
