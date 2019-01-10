@@ -49,34 +49,47 @@ for o in out
     plot(fill(o[1], length(o[2])), o[2], "ko")
 end
 
-out = []
-@progress for i in 10:30
-    S = 30
-    biomass = rand(S)
-    #TODO: this preallocating to avoid scope issues in the while feels bad
-    web = init_model(S, 0.41, biomass = biomass)
-    sampler = ACHRSampler(web)
-
-    max_iter = 0
-    while true
-        web = init_model(S, 0.41)
+function same_S(S; nsamp = 10)
+    out = []
+    @progress for i in 1:nsamp
+        biomass = rand(S)
+        #TODO: this preallocating to avoid scope issues in the while feels bad
+        web = init_model(S, 0.41, biomass = biomass)
         sampler = ACHRSampler(web)
 
-        status = warmup_sampler!(sampler)
-        if status == :Feasible
-            break
-        else
-            max_iter += 1
+        max_iter = 0
+        while true
+            web = init_model(S, 0.41)
+            sampler = ACHRSampler(web)
+
+            status = warmup_sampler!(sampler)
+            if status == :Feasible
+                break
+            else
+                max_iter += 1
+            end
+
+            if max_iter > 100
+                error("could not find feasible start")
+            end
         end
 
-        if max_iter > 100
-            error("could not find feasible start")
-        end
+        chain = hr_sample!(sampler, 500_000; burn_in = 0)
+
+        push!(out, mean([maximum(real.(eigvals(cmat(web, c)))) for c in chain[(end - 10000):end]]))
     end
 
-    chain = hr_sample!(sampler, 500_000; burn_in = 0)
+    return out
+end
 
-    push!(out, [S, [maximum(real.(eigvals(cmat(web, c)))) for c in chain[1:10000]]])
+@time out = same_S(30, nsamp = 60)
+
+plot(cumsum(out) ./ collect(1:length(out)))
+plot(out)
+
+
+for i in 1:length(out)
+    out[i]
 end
 
 for (i, o) in enumerate(out)
