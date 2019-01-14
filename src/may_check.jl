@@ -7,8 +7,15 @@ include("sampler.jl")
 
 function init_model(S, C; lb = 0.0, ub = 10.0, biomass = nothing)
     pnet = cascade_network(S, C)
-    if biomass === nothing
+    if biomass == nothing
         biomass = rand(S)
+    elseif length(biomass) == 1
+        # Set the b vector according to the TP so have E[b_i] = ξTP + (1 - ξ),
+        # so ξ > 0 means top heavy,
+        #    ξ < 0 means eltonian
+        # where ξ = biomass (the single input value)
+        bscale = biomass .* FoodWebs.trophic_levels(pnet) .+ (1 - biomass)
+        biomass = bscale .* rand(Uniform(0, 1), S)
     end
     growth = fill(1.0, S)
     for s in basal_species(pnet)
@@ -17,17 +24,18 @@ function init_model(S, C; lb = 0.0, ub = 10.0, biomass = nothing)
     return ConstrainedFoodWeb(pnet, copy(biomass), growth, lb, ub)
 end
 
-function same_S(S; nsamp = 10)
+function same_S(S, C; nsamp = 10, slope = 0.0)
     out = []
     @progress for i in 1:nsamp
-        biomass = rand(S)
+        #biomass = rand(S)
+        biomass = slope
         #TODO: this preallocating to avoid scope issues in the while feels bad
-        web = init_model(S, 0.41, biomass = biomass)
+        web = init_model(S, C, biomass = biomass)
         sampler = ACHRSampler(web)
 
         max_iter = 0
         while true
-            web = init_model(S, 0.41)
+            web = init_model(S, C, biomass = biomass)
             sampler = ACHRSampler(web)
 
             status = warmup_sampler!(sampler)
@@ -42,23 +50,53 @@ function same_S(S; nsamp = 10)
             end
         end
 
-        chain = hr_sample!(sampler, 1_000_000; burn_in = 0)
+        chain = hr_sample!(sampler, 10_000; burn_in = 0)
 
-        push!(out, mean([maximum(real.(eigvals(cmat(web, c)))) for c in chain[(end - 100000):end]]))
+        push!(out, mean([maximum(real.(eigvals(cmat(web, c)))) for c in chain[(end - 1000):end]]))
     end
 
     return out
 end
 
-function div_stab()
+function div_stab(slope)
     out = []
+    C = 0.25
     @progress for S in 10:30
-        push!(out, [S, mean(same_S(S, nsamp = 100))])
+        push!(out, [S, mean(same_S(S, C, nsamp = 60, slope = slope))])
     end
 
     return VectorOfArray(out)
 end
 
-@time out = div_stab()
+out = []
+for slope in range(-2.0, stop = 2.0, length = 5)
+    @time push!(out, div_stab(slope))
+end
 
-plot(out[1, :], out[2, :], "ko")
+let
+    for o in out
+        plot(o[1, :], o[2, :], "o")
+    end
+    xlabel("Diversity (S)")
+    ylabel(L"Re(\lambda_{max})")
+end
+
+
+function check_stab()
+    out = []
+    S = 20
+    C = 0.25
+    @progress for slope in range(-3, stop = 5, length = 30)
+        push!(out, [slope, mean(same_S(S, C, nsamp = 60, slope = slope))])
+    end
+
+    return VectorOfArray(out)
+end
+
+@time out = check_stab()
+
+let
+    plot(out[1, :], out[2, :])
+    xlabel("slope")
+    ylabel("mean stability")
+end
