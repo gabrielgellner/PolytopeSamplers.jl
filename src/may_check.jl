@@ -4,24 +4,31 @@ using MCMCDiagnostics
 using PyPlot
 
 include("sampler.jl")
+include("biomass_tools.jl")
+
+function set_β(pnet, ξ)
+    # Set the b vector according to the TP so have E[b_i] = ξTP + (1 - ξ),
+    # so ξ > 0 means top heavy,
+    #    ξ < 0 means eltonian
+    # where ξ = biomass (the single input value)
+    #
+    # not sure I need this randomness
+    # (ξ .* FoodWebs.trophic_levels(pnet) .+ (1 - ξ)) .* rand(Uniform(0, 1), S)
+    return ξ .* FoodWebs.trophic_levels(pnet) .+ (1 - ξ)
+end
 
 function init_model(S, C; lb = 0.0, ub = 10.0, biomass = nothing)
     pnet = cascade_network(S, C)
     if biomass == nothing
         biomass = rand(S)
     elseif length(biomass) == 1
-        # Set the b vector according to the TP so have E[b_i] = ξTP + (1 - ξ),
-        # so ξ > 0 means top heavy,
-        #    ξ < 0 means eltonian
-        # where ξ = biomass (the single input value)
-        bscale = biomass .* FoodWebs.trophic_levels(pnet) .+ (1 - biomass)
-        biomass = bscale .* rand(Uniform(0, 1), S)
+        β = set_β(biomass)
     end
     growth = fill(1.0, S)
     for s in basal_species(pnet)
         growth[s] = -1.0
     end
-    return ConstrainedFoodWeb(pnet, copy(biomass), growth, lb, ub)
+    return ConstrainedFoodWeb(pnet, β, growth, lb, ub)
 end
 
 function same_S(S, C; nsamp = 10, slope = 0.0)
@@ -100,3 +107,17 @@ let
     xlabel("slope")
     ylabel("mean stability")
 end
+
+pnet = cascade_network(20, 0.25)
+
+
+set_β(pnet, -0.5)
+
+
+pnet = cascade_network(30, 0.25)
+σ = 0.5
+bscale = σ .* FoodWebs.trophic_levels(pnet) .+ (1 - σ)
+biomass = bscale #.* rand(Uniform(0, 1), pnet.S)
+
+is_pyramid(pnet, biomass)
+is_inverted_pyramid(pnet, biomass)
