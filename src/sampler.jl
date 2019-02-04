@@ -2,7 +2,7 @@ using LinearAlgebra
 using Distributions
 using Statistics
 using StatsBase
-using JuMP
+import JuMP
 using Clp
 using RecursiveArrayTools
 include("foodweb_utils.jl")
@@ -25,21 +25,21 @@ is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, ato
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler; init = :center)
     # # Use JuMP to solve the linear programming problem
-    m = Model(solver = ClpSolver())
+    m = JuMP.Model(solver = ClpSolver())
     #TODO: figure out how to get the iterative lower and upper bounds like samp.prob.lower[i]
-    @variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
-    @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
+    JuMP.@variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
+    JuMP.@constraint(m, samp.prob.E * α - samp.prob.g .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (:Min, :Max)
         for i in 1:size(samp.prob.E, 2)
-            @objective(m, sense, α[i])
-            status = solve(m, suppress_warnings = true)
+            JuMP.@objective(m, sense, α[i])
+            status = JuMP.solve(m, suppress_warnings = true)
             if status == :Infeasible
                 return :Infeasible
             end
             if status == :Optimal
-                push!(samp.warmup, getvalue(α))
+                push!(samp.warmup, JuMP.getvalue(α))
             end
         end
     end
