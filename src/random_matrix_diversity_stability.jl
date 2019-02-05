@@ -1,3 +1,4 @@
+using LinearAlgebra
 using Distributions
 using FoodWebs
 using PyPlot
