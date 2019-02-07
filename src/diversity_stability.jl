@@ -40,9 +40,9 @@ out = []
         end
     end
 
-    chain = hr_sample!(sampler, 200_000; burn_in = 0)
+    chain = hr_sample!(sampler, 100_000; burn_in = 0)
 
-    push!(out, [S, [maximum(real.(eigvals(cmat(web, c)))) for c in sample(chain, 1000)]])
+    push!(out, [S, [λ_stability(cmat(web, c)) for c in sample(chain, 1000)]])
 end
 
 for o in out

@@ -1,6 +1,5 @@
 using LinearAlgebra
 using FoodWebs
-using MCMCDiagnostics
 using PyPlot
 
 include("sampler.jl")
@@ -44,7 +43,7 @@ min_β = 10.0
     end
 
     chain = hr_sample!(sampler, 300_000; burn_in = 0)
-    push!(out, mean([maximum(real.(eigvals(cmat(web, c)))) for c in chain[(end - 100000):end]]))
+    push!(out, mean([λ_stability(cmat(web, c)) for c in chain[(end - 100_000):end]]))
 end
 
 plot(1:length(out), cumsum(out) ./ collect(1:length(out)))
