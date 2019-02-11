@@ -141,6 +141,26 @@ let
     ylabel("Skewness α neg")
 end
 
+out = []
+@progress for i in 1:50
+    nsteps = 100_000
+    burning = round(Int, nsteps / 2)
+    thin = 1
+    samp = run_sampler(30, 0.25; nsteps = nsteps)
+    push!(out, chain_summary(samp.web, samp.chain))
+end
+
+let
+    plot([o.λ_1 for o in out], [o.μ_α_neg for o in out], "o")
+    xlim(-0.5, 0.5)
+end
+
+let
+    plot([o.λ_1 for o in out], [o.μ_α_pos for o in out], "o")
+    xlim(-0.5, 0.5)
+end
+
+
 for i in 1:8
     nsteps = 100_000
     burnin = round(Int, nsteps / 2)

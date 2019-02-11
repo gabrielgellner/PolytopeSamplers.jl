@@ -16,7 +16,7 @@ function div_stab(S, C)
         eig_sum = 0
         for rs in 1:resamp
             cmat = random_predprey(pnet, Uniform(0, 2 * (a * S ^ 2 + b * S)), 0.8)
-            eig_sum += maximum(real.(eigvals(cmat)))
+            eig_sum += λ_stability(cmat)
         end
         # and the mean
         push!(deigs, eig_sum / resamp)

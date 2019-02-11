@@ -20,7 +20,7 @@ function chain_moments(samps, cid::Int)
         #TODO: need to seperate the moments of the αs into off diagonal: pos, neg, and diagonal
         #      as they all mean different stuff
         M = cmat(web, α)
-        push!(out, [maximum(real.(eigvals(M))), mean(α), std(α), skewness(α), kurtosis(α)])
+        push!(out, [λ_stability(M), mean(α), std(α), skewness(α), kurtosis(α)])
     end
 
     return out

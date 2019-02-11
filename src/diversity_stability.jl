@@ -76,7 +76,7 @@ function same_S(S; nsamp = 10)
 
         chain = hr_sample!(sampler, 500_000; burn_in = 0)
 
-        push!(out, mean([maximum(real.(eigvals(cmat(web, c)))) for c in chain[(end - 10000):end]]))
+        push!(out, mean([λ_stability(cmat(web, c)) for c in chain[(end - 10000):end]]))
     end
 
     return out
