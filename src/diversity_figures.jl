@@ -141,6 +141,21 @@ let
     ylabel("Skewness α neg")
 end
 
-samp = run_sampler(30, 0.25)
-data1 = chain_details(samp.web, samp.chain)
-sizeof(data1)
+for i in 1:8
+    nsteps = 100_000
+    burnin = round(Int, nsteps / 2)
+    thin = 10
+    samp = run_sampler(30, 0.25; nsteps = nsteps)
+    data1 = chain_details(samp.web, samp.chain)[burnin:thin:end]
+    plot([d.λ_1 for d in data1 if d.λ_1 < 0], [d.μ_α_neg for d in data1 if d.λ_1 < 0], "o", mfc = "none")
+    #plot([d.λ_1 for d in data1 if d.λ_1 < 0], [d.μ_α_pos for d in data1 if d.λ_1 < 0], "o", mfc = "none")
+end
+
+for i in 1:5
+    nsteps = 10_000
+    burnin = round(Int, nsteps / 2)
+    thin = 2
+    samp = run_sampler(30, 0.25; nsteps = nsteps)
+    data1 = chain_details(samp.web, samp.chain)[burnin:thin:end]
+    plot([d.μ_α_pos for d in data1 if d.λ_1 < 0], [d.μ_α_neg for d in data1 if d.λ_1 < 0], "o", mfc = "none")
+end
