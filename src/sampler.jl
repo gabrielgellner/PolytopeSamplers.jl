@@ -1,13 +1,22 @@
 using LinearAlgebra
 using Distributions
-#using Statistics
-#using StatsBase
 import JuMP
 using Clp
 using RecursiveArrayTools
 
-mutable struct ACHRSampler
-    prob::ConstrainedFoodWeb
+abstract type AbstractMatrixConstraintProblem end
+# This needs fields for E * b = g:
+# biomass and growth
+# - b::Vector{Float64}
+# - g::Vector{Float64}
+# box constraints
+# - lower::Vector{Float64}
+# - upper::Vector{Float64}
+# equality coefficients
+# - E::Matrix{Float64}
+
+mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
+    prob::T
     Z::Matrix{Float64} # nullspace of prob.E
     #bounds_tol? Or is this part of prob?
     warmup::Vector{Vector{Float64}}

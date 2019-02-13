@@ -1,6 +1,6 @@
 module HRMCMC
 
-include("sampler")
+include("sampler.jl")
 export hr_sample!
 
 end
