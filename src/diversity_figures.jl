@@ -6,8 +6,8 @@ using PyPlot
 include("sampler.jl")
 include("biomass_tools.jl")
 
-function init_model(S, C; lb = 0.0, ub = 10.0, min_β = 10.0, δ = 0.0)
-    pnet = cascade_network(S, C)
+function init_model(S, C; lb = 0.0, ub = 10.0, min_β = 10.0, δ = -1.0)
+    pnet = generalized_cascade_network(S, C)
     β = set_β(pnet, δ, min_β)
 
     growth = fill(1.0, S)
@@ -110,7 +110,7 @@ end
 Svals = 10:30
 out = []
 @progress for S in Svals
-    reps = [web_summary(S, 0.25; nsteps = 100_00) for i in 1:50]
+    reps = [web_summary(S, 0.25; nsteps = 10_000) for i in 1:50]
     push!(out, (λ_1 = mean(r.λ_1 for r in reps), μ_α_pos = mean(r.μ_α_pos for r in reps), μ_α_neg = mean(r.μ_α_neg for r in reps), skew_α_neg = mean(r.skew_α_neg for r in reps), skew_α_pos = mean(r.skew_α_pos for r in reps)))
 end
 
