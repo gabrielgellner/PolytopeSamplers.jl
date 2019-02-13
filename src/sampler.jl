@@ -1,11 +1,10 @@
 using LinearAlgebra
 using Distributions
-using Statistics
-using StatsBase
+#using Statistics
+#using StatsBase
 import JuMP
 using Clp
 using RecursiveArrayTools
-include("foodweb_utils.jl")
 
 mutable struct ACHRSampler
     prob::ConstrainedFoodWeb
@@ -17,8 +16,6 @@ mutable struct ACHRSampler
     prev::Vector{Float64}
     #points?
 end
-
-ACHRSampler(prob::ConstrainedFoodWeb) = ACHRSampler(prob, nullspace(prob.E), [], fill(NaN, size(prob.E, 2)), 0, fill(NaN, size(prob.E, 2)))
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
 
@@ -68,7 +65,7 @@ function step(samp, Δ)
     lmax = Inf
     for i in 1:length(Δ)
         if Δ[i] ≈ 0
-            @show "delta 0"
+            @show "Hit and Run search direction is length 0"
             continue
         end
         scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
