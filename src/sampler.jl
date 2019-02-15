@@ -74,7 +74,8 @@ function step(samp, Δ)
     lmax = Inf
     for i in 1:length(Δ)
         if Δ[i] ≈ 0
-            @show "Hit and Run search direction is length 0"
+            # A degenerate direction, just start again with a new direction
+            #@show "Hit and Run search direction is length 0"
             continue
         end
         scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
