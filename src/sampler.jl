@@ -1,6 +1,6 @@
 using LinearAlgebra
 using Distributions
-import JuMP
+using JuMP
 using Clp
 using RecursiveArrayTools
 
@@ -31,21 +31,21 @@ is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, ato
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler; init = :center)
     # # Use JuMP to solve the linear programming problem
-    m = JuMP.Model(solver = ClpSolver())
+    m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
     #TODO: figure out how to get the iterative lower and upper bounds like samp.prob.lower[i]
-    JuMP.@variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
-    JuMP.@constraint(m, samp.prob.E * α - samp.prob.g .== 0)
+    @variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
+    @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
-    for sense in (:Min, :Max)
+    for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
         for i in 1:size(samp.prob.E, 2)
-            JuMP.@objective(m, sense, α[i])
-            status = JuMP.solve(m, suppress_warnings = true)
-            if status == :Infeasible
+            @objective(m, sense, α[i])
+            optimize!(m)
+            if termination_status(m) == MOI.INFEASIBLE_POINT
                 return :Infeasible
             end
-            if status == :Optimal
-                push!(samp.warmup, JuMP.getvalue(α))
+            if termination_status(m) == MOI.OPTIMAL
+                push!(samp.warmup, value.(α))
             end
         end
     end
