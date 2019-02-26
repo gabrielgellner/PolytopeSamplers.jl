@@ -32,8 +32,7 @@ is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, ato
 function warmup_sampler!(samp::ACHRSampler; init = :center)
     # # Use JuMP to solve the linear programming problem
     m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
-    #TODO: figure out how to get the iterative lower and upper bounds like samp.prob.lower[i]
-    @variable(m, samp.prob.lower[1] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[1])
+    @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
