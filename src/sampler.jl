@@ -74,7 +74,7 @@ function step(samp, Δ)
     for i in 1:length(Δ)
         # If any of the directions are near zero we should not sample in that direction as it will
         # not be in the convex space (i.e. that dimension is fixed and will not vary)
-        if isapprox(Δ[i], 0, abtol = 1e-14)
+        if isapprox(Δ[i], 0, atol = 1e-14)
             # A degenerate direction, just start again with a new direction
             #@show "Hit and Run search direction is length 0"
             continue
