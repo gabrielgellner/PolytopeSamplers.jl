@@ -3,12 +3,13 @@ using Distributions
 using JuMP
 using Clp
 using RecursiveArrayTools
+using Parameters
 
 abstract type AbstractMatrixConstraintProblem end
 # This needs fields for E * b = g:
-# biomass and growth
-# - b::Vector{Float64}
-# - g::Vector{Float64}
+# biomass (x) and growth (r)
+# - x::Vector{Float64}
+# - r::Vector{Float64}
 # box constraints
 # - lower::Vector{Float64}
 # - upper::Vector{Float64}
@@ -18,11 +19,11 @@ abstract type AbstractMatrixConstraintProblem end
 mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     prob::T
     Z::Matrix{Float64} # nullspace of prob.E
-    #bounds_tol? Or is this part of prob?
     warmup::Vector{Vector{Float64}}
     center::Vector{Float64}
     n_samples::Int # how many samples have already been generated, used in center calculations
     prev::Vector{Float64}
+    bounds_tol::Float64 # 1e-15 is a good start
     #points?
 end
 
@@ -33,14 +34,14 @@ function warmup_sampler!(samp::ACHRSampler; init = :center)
     # # Use JuMP to solve the linear programming problem
     m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
-    @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
+    @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
         for i in 1:size(samp.prob.E, 2)
             @objective(m, sense, α[i])
             optimize!(m)
-            if termination_status(m) == MOI.INFEASIBLE_POINT
+            if termination_status(m) == MOI.INFEASIBLE
                 return :Infeasible
             end
             if termination_status(m) == MOI.OPTIMAL
