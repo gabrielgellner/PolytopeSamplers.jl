@@ -101,6 +101,9 @@ function step(samp, Δ)
         end
     end
     if lmin != lmax
+        if lmin > lmax
+            @show lmin, lmax
+        end
         scale = rand(Uniform(lmin, lmax))
     else
         scale = lmin
