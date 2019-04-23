@@ -21,6 +21,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     Z::Matrix{Float64} # nullspace of prob.E
     warmup::Vector{Vector{Float64}}
     center::Vector{Float64}
+    n_warmup::Int
     n_samples::Int # how many samples have already been generated, used in center calculations
     prev::Vector{Float64}
     bounds_tol::Float64 # 1e-15 is a good start
@@ -30,7 +31,7 @@ end
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
 
 #TODO: if I call this more than once, I will get double the warm up points
-function warmup_sampler!(samp::ACHRSampler; init = :center)
+function warmup_sampler!(samp::ACHRSampler)
     # # Use JuMP to solve the linear programming problem
     m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
@@ -49,19 +50,16 @@ function warmup_sampler!(samp::ACHRSampler; init = :center)
             end
         end
     end
-    #TODO: Remove redundent search directions
-    unique!(samp.warmup)
+    #TODO: Remove redundant search directions
     #keep = np.logical_not(self._is_redundant(self.warmup))
-    #self.warmup = self.warmup[keep, :]
-    #self.n_warmup = self.warmup.shape[0]
-    samp.n_samples = length(samp.warmup)
+    unique!(samp.warmup)
+    samp.n_warmup = length(samp.warmup)
+    samp.n_samples = samp.n_warmup
     samp.center = mean(samp.warmup)
+
     # start at the current estimated center
-    if init == :center
-        samp.prev = copy(samp.center)
-    elseif init == :bound
-        samp.prev = copy(sample(samp.warmup))
-    end
+    samp.prev = copy(samp.center)
+
     return :Feasible
 end
 
