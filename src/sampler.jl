@@ -139,6 +139,7 @@ function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int =
     chain = []
 
     for i in 1:n
+        # mix in the original warmup points to not get stuck
         Δ = sample(samp.warmup) - samp.center
         update!(samp, Δ)
         # thin for memory saving
