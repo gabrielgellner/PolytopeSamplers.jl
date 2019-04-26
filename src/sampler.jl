@@ -66,81 +66,85 @@ end
 """
     Sample a new feasible point from the point `x` in direction `Δ`.
 """
-function step(samp, Δ)
-    prob = samp.prob
-    lmin = -Inf
-    lmax = Inf
-    for i in 1:length(Δ)
-        # If any of the directions are near zero we should not sample in that direction as it will
-        # not be in the convex space (i.e. that dimension is fixed and will not vary)
-        if isapprox(Δ[i], 0, atol = 1e-14)
-            # A degenerate direction, just start again with a new direction
-            #@show "Hit and Run search direction is length 0"
-            continue
-        end
-        scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
-        scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
-        if Δ[i] > 0
-            # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
-            if scale_low > lmin
-                lmin = scale_low
-            end
-            if scale_upp < lmax
-                lmax = scale_upp
-            end
-        elseif Δ[i] < 0
-            # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
-            if scale_low < lmax
-                lmax = scale_low
-            end
-            if scale_upp > lmin
-                lmin = scale_upp
-            end
-        end
-    end
-    if lmin != lmax
-        if lmin > lmax
-            @show lmin, lmax
-        end
-        scale = rand(Uniform(lmin, lmax))
-    else
-        scale = lmin
-    end
-
-    return samp.prev + scale * Δ
-end
+# function step(samp, Δ)
+#     prob = samp.prob
+#     lmin = -Inf
+#     lmax = Inf
+#     for i in 1:length(Δ)
+#         # If any of the directions are near zero we should not sample in that direction as it will
+#         # not be in the convex space (i.e. that dimension is fixed and will not vary)
+#         if isapprox(Δ[i], 0, atol = 1e-14)
+#             # A degenerate direction, just start again with a new direction
+#             #@show "Hit and Run search direction is length 0"
+#             continue
+#         end
+#         scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
+#         scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
+#         if Δ[i] > 0
+#             # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
+#             if scale_low > lmin
+#                 lmin = scale_low
+#             end
+#             if scale_upp < lmax
+#                 lmax = scale_upp
+#             end
+#         elseif Δ[i] < 0
+#             # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
+#             if scale_low < lmax
+#                 lmax = scale_low
+#             end
+#             if scale_upp > lmin
+#                 lmin = scale_upp
+#             end
+#         end
+#     end
+#     if lmin != lmax
+#         if lmin > lmax
+#             @show lmin, lmax
+#         end
+#         scale = rand(Uniform(lmin, lmax))
+#     else
+#         scale = lmin
+#     end
+#
+#     return samp.prev + scale * Δ
+# end
 
 """
 Sample a new feasible point from the point `x` in direction `delta`.
 """
-function step(sampler, x, Δ)
+function step(sampler, Δ)
     prob = sampler.prob
-    valid = ((abs.(Δ) .> sampler.feasibility_tol) & np.logical_not(prob.variable_fixed))
-
-    # permissible scale for staying in variable bounds
-    vscale = ((1.0 - sampler.bounds_tol) * prob.variable_bounds - x)[:, valid]
-    vscale = (vscale / Δ[valid]).flatten()
-
-    if size(prob.bounds, 1) > 0
-        # permissible scale for staying in constraint bounds
-        ineqs = prob.inequalities * Δ
-        valid = abs.(ineqs) .> sampler.feasibility_tol
-        bscale = ((1.0 - sampler.bounds_tol) * prob.bounds - prob.inequalities * x)[:, valid]
-        bscale = (bscale / ineqs[valid]).flatten()
-
-        # combined alphas
-        scale = hcat([vscale, bscale])
-    else
-        scale = vscale
+    scale_neg = -Inf
+    scale_pos = Inf
+    for i in 1:length(Δ)
+        # If any of the directions are near zero we should not sample in that direction as it will
+        # not be in the convex space (i.e. that dimension is fixed and will not vary)
+        if isapprox(Δ[i], 0, atol = 1e-14)
+            # A degenerate direction dimensions, skip this dimension
+            #@show "Hit and Run search direction is length 0"
+            continue
+        end
+        scale_low = (prob.lower[i] - sampler.prev[i]) / Δ[i]
+        scale_upp = (prob.upper[i] - sampler.prev[i]) / Δ[i]
+        for sv in (scale_low, scale_upp)
+            if sv < 0
+                # Find the largest negative scaling
+                if sv > scale_neg
+                    scale_neg = sv
+                end
+            else
+                # Find the smallest positive scaling
+                if sv < scale_pos
+                    scale_pos = sv
+                end
+            end
+        end
     end
-    pos_scale = scale[scale .> 0.0]
-    neg_scale = scale[scale .<= 0.0]
-    scale_range = np.array([maximum(neg_scale) if length(neg_scale) > 0 else 0,
-                            minimum(pos_scale) if length(pos_scale) > 0 else 0])
 
-    alpha = rand(Uniform(scale_range[1], scale_range[2]))
+    scale = rand(Uniform(scale_neg, scale_pos))
 
-    return x + scale * Δ
+    return sampler.prev + scale * Δ
 end
 
 function update!(samp::ACHRSampler, Δ)
