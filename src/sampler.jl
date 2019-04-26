@@ -110,6 +110,39 @@ function step(samp, Δ)
     return samp.prev + scale * Δ
 end
 
+"""
+Sample a new feasible point from the point `x` in direction `delta`.
+"""
+function step(sampler, x, Δ)
+    prob = sampler.prob
+    valid = ((abs.(Δ) .> sampler.feasibility_tol) & np.logical_not(prob.variable_fixed))
+
+    # permissible scale for staying in variable bounds
+    vscale = ((1.0 - sampler.bounds_tol) * prob.variable_bounds - x)[:, valid]
+    vscale = (vscale / Δ[valid]).flatten()
+
+    if size(prob.bounds, 1) > 0
+        # permissible scale for staying in constraint bounds
+        ineqs = prob.inequalities * Δ
+        valid = abs.(ineqs) .> sampler.feasibility_tol
+        bscale = ((1.0 - sampler.bounds_tol) * prob.bounds - prob.inequalities * x)[:, valid]
+        bscale = (bscale / ineqs[valid]).flatten()
+
+        # combined alphas
+        scale = hcat([vscale, bscale])
+    else
+        scale = vscale
+    end
+    pos_scale = scale[scale .> 0.0]
+    neg_scale = scale[scale .<= 0.0]
+    scale_range = np.array([maximum(neg_scale) if length(neg_scale) > 0 else 0,
+                            minimum(pos_scale) if length(pos_scale) > 0 else 0])
+
+    alpha = rand(Uniform(scale_range[1], scale_range[2]))
+
+    return x + scale * Δ
+end
+
 function update!(samp::ACHRSampler, Δ)
     samp.prev = step(samp, Δ)
     # update the center given the new iteration
