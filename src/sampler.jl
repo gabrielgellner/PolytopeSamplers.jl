@@ -3,12 +3,13 @@ using Distributions
 using JuMP
 using Clp
 using RecursiveArrayTools
+using Parameters
 
 abstract type AbstractMatrixConstraintProblem end
 # This needs fields for E * b = g:
-# biomass and growth
-# - b::Vector{Float64}
-# - g::Vector{Float64}
+# biomass (x) and growth (r)
+# - x::Vector{Float64}
+# - r::Vector{Float64}
 # box constraints
 # - lower::Vector{Float64}
 # - upper::Vector{Float64}
@@ -18,29 +19,30 @@ abstract type AbstractMatrixConstraintProblem end
 mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     prob::T
     Z::Matrix{Float64} # nullspace of prob.E
-    #bounds_tol? Or is this part of prob?
     warmup::Vector{Vector{Float64}}
     center::Vector{Float64}
+    n_warmup::Int
     n_samples::Int # how many samples have already been generated, used in center calculations
     prev::Vector{Float64}
+    bounds_tol::Float64 # 1e-15 is a good start
     #points?
 end
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
 
 #TODO: if I call this more than once, I will get double the warm up points
-function warmup_sampler!(samp::ACHRSampler; init = :center)
+function warmup_sampler!(samp::ACHRSampler)
     # # Use JuMP to solve the linear programming problem
     m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
-    @constraint(m, samp.prob.E * α - samp.prob.g .== 0)
+    @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
         for i in 1:size(samp.prob.E, 2)
             @objective(m, sense, α[i])
             optimize!(m)
-            if termination_status(m) == MOI.INFEASIBLE_POINT
+            if termination_status(m) == MOI.INFEASIBLE
                 return :Infeasible
             end
             if termination_status(m) == MOI.OPTIMAL
@@ -48,64 +50,101 @@ function warmup_sampler!(samp::ACHRSampler; init = :center)
             end
         end
     end
-    #TODO: Remove redundent search directions
-    unique!(samp.warmup)
+    #TODO: Remove redundant search directions
     #keep = np.logical_not(self._is_redundant(self.warmup))
-    #self.warmup = self.warmup[keep, :]
-    #self.n_warmup = self.warmup.shape[0]
-    samp.n_samples = length(samp.warmup)
+    unique!(samp.warmup)
+    samp.n_warmup = length(samp.warmup)
+    samp.n_samples = samp.n_warmup
     samp.center = mean(samp.warmup)
+
     # start at the current estimated center
-    if init == :center
-        samp.prev = copy(samp.center)
-    elseif init == :bound
-        samp.prev = copy(sample(samp.warmup))
-    end
+    samp.prev = copy(samp.center)
+
     return :Feasible
 end
 
 """
     Sample a new feasible point from the point `x` in direction `Δ`.
 """
-function step(samp, Δ)
-    prob = samp.prob
-    lmin = -Inf
-    lmax = Inf
+# function step(samp, Δ)
+#     prob = samp.prob
+#     lmin = -Inf
+#     lmax = Inf
+#     for i in 1:length(Δ)
+#         # If any of the directions are near zero we should not sample in that direction as it will
+#         # not be in the convex space (i.e. that dimension is fixed and will not vary)
+#         if isapprox(Δ[i], 0, atol = 1e-14)
+#             # A degenerate direction, just start again with a new direction
+#             #@show "Hit and Run search direction is length 0"
+#             continue
+#         end
+#         scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
+#         scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
+#         if Δ[i] > 0
+#             # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
+#             if scale_low > lmin
+#                 lmin = scale_low
+#             end
+#             if scale_upp < lmax
+#                 lmax = scale_upp
+#             end
+#         elseif Δ[i] < 0
+#             # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
+#             if scale_low < lmax
+#                 lmax = scale_low
+#             end
+#             if scale_upp > lmin
+#                 lmin = scale_upp
+#             end
+#         end
+#     end
+#     if lmin != lmax
+#         if lmin > lmax
+#             @show lmin, lmax
+#         end
+#         scale = rand(Uniform(lmin, lmax))
+#     else
+#         scale = lmin
+#     end
+#
+#     return samp.prev + scale * Δ
+# end
+
+"""
+Sample a new feasible point from the point `x` in direction `delta`.
+"""
+function step(sampler, Δ)
+    prob = sampler.prob
+    scale_neg = -Inf
+    scale_pos = Inf
     for i in 1:length(Δ)
         # If any of the directions are near zero we should not sample in that direction as it will
         # not be in the convex space (i.e. that dimension is fixed and will not vary)
         if isapprox(Δ[i], 0, atol = 1e-14)
-            # A degenerate direction, just start again with a new direction
+            # A degenerate direction dimensions, skip this dimension
             #@show "Hit and Run search direction is length 0"
             continue
         end
-        scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
-        scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
-        if Δ[i] > 0
-            # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
-            if scale_low > lmin
-                lmin = scale_low
-            end
-            if scale_upp < lmax
-                lmax = scale_upp
-            end
-        elseif Δ[i] < 0
-            # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
-            if scale_low < lmax
-                lmax = scale_low
-            end
-            if scale_upp > lmin
-                lmin = scale_upp
+        scale_low = (prob.lower[i] - sampler.prev[i]) / Δ[i]
+        scale_upp = (prob.upper[i] - sampler.prev[i]) / Δ[i]
+        for sv in (scale_low, scale_upp)
+            if sv < 0
+                # Find the largest negative scaling
+                if sv > scale_neg
+                    scale_neg = sv
+                end
+            else
+                # Find the smallest positive scaling
+                if sv < scale_pos
+                    scale_pos = sv
+                end
             end
         end
     end
-    if lmin != lmax
-        scale = rand(Uniform(lmin, lmax))
-    else
-        scale = lmin
-    end
 
-    return samp.prev + scale * Δ
+    scale = rand(Uniform(scale_neg, scale_pos))
+
+    return sampler.prev + scale * Δ
 end
 
 function update!(samp::ACHRSampler, Δ)
@@ -137,6 +176,7 @@ function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int =
     chain = []
 
     for i in 1:n
+        # mix in the original warmup points to not get stuck
         Δ = sample(samp.warmup) - samp.center
         update!(samp, Δ)
         # thin for memory saving
