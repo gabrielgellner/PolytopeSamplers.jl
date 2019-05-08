@@ -125,6 +125,9 @@ function step(sampler, Δ)
             #@show "Hit and Run search direction is length 0"
             continue
         end
+        #NOTE: we see the following python code makes the bounds a little tighter according to the `bounds_tol`
+        #valphas = ((1.0 - sampler.bounds_tol) * prob.variable_bounds - x)[:, valid]
+        #valphas = (valphas / delta[valid]).flatten()
         scale_low = (prob.lower[i] - sampler.prev[i]) / Δ[i]
         scale_upp = (prob.upper[i] - sampler.prev[i]) / Δ[i]
         for sv in (scale_low, scale_upp)
