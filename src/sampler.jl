@@ -6,7 +6,7 @@ using RecursiveArrayTools
 using Parameters
 
 abstract type AbstractMatrixConstraintProblem end
-# This needs fields for E * b = g:
+# This needs fields for E * b + g = 0:
 # biomass (x) and growth (r)
 # - x::Vector{Float64}
 # - r::Vector{Float64}
@@ -28,7 +28,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     #points?
 end
 
-is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x - prob.g, 0.0, atol = atol))
+is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.g, 0.0, atol = atol))
 
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler)
@@ -130,6 +130,7 @@ function step(sampler, Δ)
         #valphas = (valphas / delta[valid]).flatten()
         scale_low = (prob.lower[i] - sampler.prev[i]) / Δ[i]
         scale_upp = (prob.upper[i] - sampler.prev[i]) / Δ[i]
+        #TODO: Do we add the inequality clambing after or duging this loop?
         for sv in (scale_low, scale_upp)
             if sv < 0
                 # Find the largest negative scaling
