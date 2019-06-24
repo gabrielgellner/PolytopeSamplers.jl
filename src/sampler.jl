@@ -64,54 +64,7 @@ function warmup_sampler!(samp::ACHRSampler)
 end
 
 """
-    Sample a new feasible point from the point `x` in direction `Δ`.
-"""
-# function step(samp, Δ)
-#     prob = samp.prob
-#     lmin = -Inf
-#     lmax = Inf
-#     for i in 1:length(Δ)
-#         # If any of the directions are near zero we should not sample in that direction as it will
-#         # not be in the convex space (i.e. that dimension is fixed and will not vary)
-#         if isapprox(Δ[i], 0, atol = 1e-14)
-#             # A degenerate direction, just start again with a new direction
-#             #@show "Hit and Run search direction is length 0"
-#             continue
-#         end
-#         scale_low = (prob.lower[i] - samp.prev[i]) / Δ[i]
-#         scale_upp = (prob.upper[i] - samp.prev[i]) / Δ[i]
-#         if Δ[i] > 0
-#             # scale will satisfy: `(low - prev) / Δ <= scale <= (upp - prev) / Δ`
-#             if scale_low > lmin
-#                 lmin = scale_low
-#             end
-#             if scale_upp < lmax
-#                 lmax = scale_upp
-#             end
-#         elseif Δ[i] < 0
-#             # scale will satisfy: `(low - prev) / Δ >= scale >= (upp - prev) / Δ`
-#             if scale_low < lmax
-#                 lmax = scale_low
-#             end
-#             if scale_upp > lmin
-#                 lmin = scale_upp
-#             end
-#         end
-#     end
-#     if lmin != lmax
-#         if lmin > lmax
-#             @show lmin, lmax
-#         end
-#         scale = rand(Uniform(lmin, lmax))
-#     else
-#         scale = lmin
-#     end
-#
-#     return samp.prev + scale * Δ
-# end
-
-"""
-Sample a new feasible point from the point `x` in direction `delta`.
+Sample a new feasible point from the point `x` in direction `Δ`.
 """
 function step(sampler, Δ)
     prob = sampler.prob
