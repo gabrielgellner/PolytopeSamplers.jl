@@ -26,6 +26,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     prev::Vector{Float64}
     bounds_tol::Float64 # 1e-15 is a good start
     #points?
+    feasible::Bool
 end
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.g, 0.0, atol = atol))
@@ -43,6 +44,7 @@ function warmup_sampler!(samp::ACHRSampler)
             @objective(m, sense, α[i])
             optimize!(m)
             if termination_status(m) == MOI.INFEASIBLE
+                samp.feasible = false
                 return :Infeasible
             end
             if termination_status(m) == MOI.OPTIMAL
@@ -60,6 +62,7 @@ function warmup_sampler!(samp::ACHRSampler)
     # start at the current estimated center
     samp.prev = copy(samp.center)
 
+    samp.feasible = true
     return :Feasible
 end
 
