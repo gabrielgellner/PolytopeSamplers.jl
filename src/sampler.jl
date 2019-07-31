@@ -15,17 +15,23 @@ abstract type AbstractMatrixConstraintProblem end
 # - upper::Vector{Float64}
 # equality coefficients
 # - E::Matrix{Float64}
+# inequality M α >= 0
+# - M::Matrix{Float64}
+# - f::Vector{Float64}
 
 mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
+    # Problem information
     prob::T
     Z::Matrix{Float64} # nullspace of prob.E
+    # Chain initialization
     warmup::Vector{Vector{Float64}}
     center::Vector{Float64}
     n_warmup::Int
     n_samples::Int # how many samples have already been generated, used in center calculations
     prev::Vector{Float64}
-    bounds_tol::Float64 # 1e-15 is a good start
-    #points?
+    # Numerical checks
+    feasibility_tol::Float64 # 1e-15 is a good start
+    bounds_tol::Float64
     feasible::Bool
 end
 
@@ -84,9 +90,9 @@ function step(sampler, Δ)
         #NOTE: we see the following python code makes the bounds a little tighter according to the `bounds_tol`
         #valphas = ((1.0 - sampler.bounds_tol) * prob.variable_bounds - x)[:, valid]
         #valphas = (valphas / delta[valid]).flatten()
-        scale_low = (prob.lower[i] - sampler.prev[i]) / Δ[i]
-        scale_upp = (prob.upper[i] - sampler.prev[i]) / Δ[i]
-        #TODO: Do we add the inequality clambing after or duging this loop?
+        scale_low = ((1 - sampler.bounds_tol) * prob.lower[i] - sampler.prev[i]) / Δ[i]
+        scale_upp = ((1 - sampler.bounds_tol) * prob.upper[i] - sampler.prev[i]) / Δ[i]
+        #TODO: Do we add the inequality clamping after or during this loop?
         for sv in (scale_low, scale_upp)
             if sv < 0
                 # Find the largest negative scaling
