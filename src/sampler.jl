@@ -43,6 +43,7 @@ function warmup_sampler!(samp::ACHRSampler)
     m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
+    @constraint(m, samp.prob.M * α .>= 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
@@ -87,9 +88,8 @@ function step(sampler, Δ)
             #@show "Hit and Run search direction is length 0"
             continue
         end
-        #NOTE: we see the following python code makes the bounds a little tighter according to the `bounds_tol`
-        #valphas = ((1.0 - sampler.bounds_tol) * prob.variable_bounds - x)[:, valid]
-        #valphas = (valphas / delta[valid]).flatten()
+        # make the bounds a little tighter according to the `bounds_tol` so that we have less
+        # of a chance of leaving the boundary due to numerical error
         scale_low = ((1 - sampler.bounds_tol) * prob.lower[i] - sampler.prev[i]) / Δ[i]
         scale_upp = ((1 - sampler.bounds_tol) * prob.upper[i] - sampler.prev[i]) / Δ[i]
         #TODO: Do we add the inequality clamping after or during this loop?
@@ -139,7 +139,7 @@ function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int =
     end
     #TODO: use thinning + burn_in information to get this correct
     #chain = fill(0.0, n - burn_in, length(samp.center))
-    chain = []
+    chain = Vector{eltype(samp.prev)}[]
 
     for i in 1:n
         # mix in the original warmup points to not get stuck
@@ -148,7 +148,7 @@ function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int =
         # thin for memory saving
         if i % thinning == 0 && i > burn_in
             push!(chain, copy(samp.prev))
-            #push!(cout, copy(samp.center))
+            #push!(chain, copy(samp.center))
         end
     end
 
