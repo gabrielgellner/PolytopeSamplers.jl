@@ -1,7 +1,7 @@
 using LinearAlgebra
 using Distributions
 using JuMP
-using Clp
+using GLPK
 using RecursiveArrayTools
 using Parameters
 
@@ -40,7 +40,7 @@ is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.g, 0.0, ato
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler)
     # # Use JuMP to solve the linear programming problem
-    m = Model(with_optimizer(Clp.Optimizer, LogLevel = 0))
+    m = Model(with_optimizer(GLPK.Optimizer)) #, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
     @constraint(m, samp.prob.M * α .>= 0)
