@@ -6,7 +6,7 @@ using RecursiveArrayTools
 using Parameters
 
 abstract type AbstractMatrixConstraintProblem end
-# This needs fields for E * b + g = 0:
+# This needs fields for E * α + r = 0:
 # biomass (x) and growth (r)
 # - x::Vector{Float64}
 # - r::Vector{Float64}
@@ -15,8 +15,8 @@ abstract type AbstractMatrixConstraintProblem end
 # - upper::Vector{Float64}
 # equality coefficients
 # - E::Matrix{Float64}
-# inequality M α >= 0
-# - M::Matrix{Float64}
+# inequality M α >= f
+# - L::Matrix{Float64}
 # - f::Vector{Float64}
 
 mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
@@ -43,7 +43,7 @@ function warmup_sampler!(samp::ACHRSampler)
     m = Model(with_optimizer(GLPK.Optimizer)) #, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    @constraint(m, samp.prob.M * α .>= 0)
+    @constraint(m, samp.prob.L * α .>= 0) #TODO: L * α >= f
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
