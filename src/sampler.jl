@@ -43,7 +43,7 @@ function warmup_sampler!(samp::ACHRSampler)
     m = Model(with_optimizer(GLPK.Optimizer)) #, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    @constraint(m, samp.prob.L * α .>= 0) #TODO: L * α >= f
+    @constraint(m, samp.prob.L * α .>= samp.prob.f)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
@@ -74,16 +74,18 @@ function warmup_sampler!(samp::ACHRSampler)
 end
 
 """
-Sample a new feasible point from the point `x` in direction `Δ`.
+Sample a new feasible point from the point `sampler.prev` in direction `Δ`.
 """
 function step(sampler, Δ)
     prob = sampler.prob
+    #TODO: should add this to sampler type
+    feasibility_tol = 1e-7
     scale_neg = -Inf
     scale_pos = Inf
-    for i in 1:length(Δ)
+    for i in eachindex(Δ)
         # If any of the directions are near zero we should not sample in that direction as it will
         # not be in the convex space (i.e. that dimension is fixed and will not vary)
-        if isapprox(Δ[i], 0, atol = 1e-14)
+        if isapprox(Δ[i], 0, atol = feasibility_tol)
             # A degenerate direction dimensions, skip this dimension
             #@show "Hit and Run search direction is length 0"
             continue
