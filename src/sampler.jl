@@ -90,11 +90,15 @@ function step(sampler, Δ)
             #@show "Hit and Run search direction is length 0"
             continue
         end
+        # We need to solve:
+        # x + Δ * scale = Bound => scale = (Bound - x) / Δ
+        #
+        # (1 - bounds_tol):
         # make the bounds a little tighter according to the `bounds_tol` so that we have less
         # of a chance of leaving the boundary due to numerical error
         scale_low = ((1 - sampler.bounds_tol) * prob.lower[i] - sampler.prev[i]) / Δ[i]
         scale_upp = ((1 - sampler.bounds_tol) * prob.upper[i] - sampler.prev[i]) / Δ[i]
-        #TODO: Do we add the inequality clamping after or during this loop?
+        #TODO: Do we add the inequality clamping after or during this loop? During.
         for sv in (scale_low, scale_upp)
             if sv < 0
                 # Find the largest negative scaling
