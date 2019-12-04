@@ -35,7 +35,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     feasible::Bool
 end
 
-is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.g, 0.0, atol = atol))
+is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.r, 0.0, atol = atol))
 
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler)
@@ -43,7 +43,7 @@ function warmup_sampler!(samp::ACHRSampler)
     m = Model(with_optimizer(GLPK.Optimizer)) #, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    @constraint(m, samp.prob.L * α .>= samp.prob.f)
+    #@constraint(m, samp.prob.L * α .>= 0) # .>= samp.prob.f
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
@@ -51,8 +51,9 @@ function warmup_sampler!(samp::ACHRSampler)
             @objective(m, sense, α[i])
             optimize!(m)
             if termination_status(m) == MOI.INFEASIBLE
-                samp.feasible = false
-                return :Infeasible
+                #samp.feasible = false
+                #return :Infeasible
+                continue
             end
             if termination_status(m) == MOI.OPTIMAL
                 push!(samp.warmup, value.(α))
@@ -98,8 +99,32 @@ function step(sampler, Δ)
         # of a chance of leaving the boundary due to numerical error
         scale_low = ((1 - sampler.bounds_tol) * prob.lower[i] - sampler.prev[i]) / Δ[i]
         scale_upp = ((1 - sampler.bounds_tol) * prob.upper[i] - sampler.prev[i]) / Δ[i]
-        #TODO: Do we add the inequality clamping after or during this loop? During.
+
         for sv in (scale_low, scale_upp)
+            if sv < 0
+                # Find the largest negative scaling
+                if sv > scale_neg
+                    scale_neg = sv
+                end
+            else
+                # Find the smallest positive scaling
+                if sv < scale_pos
+                    scale_pos = sv
+                end
+            end
+        end
+    end
+    # Inequality bounds
+    # Inequalitity terms
+    Lx = sampler.prob.L * sampler.prev
+    LΔ = sampler.prob.L * Δ
+    #TODO: need to add seperate inequalities for the inequalities to `prob`
+    for i in eachindex(LΔ)
+        #ieq_low = ((1 - sampler.bounds_tol[i]) * prob.lower[i] - Lx[i]) / LΔ[i]
+        # Assume the lower bound is 0, and we have no upper bound
+        ieq_low = -Lx[i] / LΔ[i]
+        #ieq_upp = ((1 - sampler.bounds_tol[i]) * prob.upper[i] - Lx[i]) / LΔ[i]
+        for sv in (ieq_low,) #, ieq_upp)
             if sv < 0
                 # Find the largest negative scaling
                 if sv > scale_neg
