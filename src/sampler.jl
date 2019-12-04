@@ -51,9 +51,9 @@ function warmup_sampler!(samp::ACHRSampler)
             @objective(m, sense, α[i])
             optimize!(m)
             if termination_status(m) == MOI.INFEASIBLE
-                #samp.feasible = false
-                #return :Infeasible
-                continue
+                samp.feasible = false
+                return :Infeasible
+                #continue
             end
             if termination_status(m) == MOI.OPTIMAL
                 push!(samp.warmup, value.(α))
@@ -64,6 +64,9 @@ function warmup_sampler!(samp::ACHRSampler)
     #keep = np.logical_not(self._is_redundant(self.warmup))
     unique!(samp.warmup)
     samp.n_warmup = length(samp.warmup)
+    if samp.n_warmup == 0
+        error("Insufficient Direction Vectors Found")
+    end
     samp.n_samples = samp.n_warmup
     samp.center = mean(samp.warmup)
 
@@ -163,6 +166,24 @@ n::Int
 * Notes
 Performance of this function linearly depends on the number of reactions in your model and the
 thinning factor.
+
+ACHR generates samples by choosing new directions from the sampling space's
+center and the warmup points. The implementation used here is the same
+as in the Matlab Cobra Toolbox [2]_ and uses only the initial warmup points
+to generate new directions and not any other previous iterates. This
+usually gives better mixing since the startup points are chosen to span
+the space in a wide manner. This also makes the generated sampling chain
+quasi-markovian since the center converges rapidly.
+Memory usage is roughly in the order of (2 * number reactions)^2
+due to the required nullspace matrices and warmup points. So large
+models easily take up a few GB of RAM.
+
+* References
+[1] Direction Choice for Accelerated Convergence in Hit-and-Run Sampling
+   David E. Kaufman Robert L. Smith
+   Operations Research 199846:1 , 84-95
+   https://doi.org/10.1287/opre.46.1.84
+[2] https://github.com/opencobra/cobratoolbox
 """
 function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int = -1)
     if burn_in == -1 # what is the correct way to do this in a typed manner?
