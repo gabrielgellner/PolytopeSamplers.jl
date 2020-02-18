@@ -40,7 +40,7 @@ is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.r, 0.0, ato
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp::ACHRSampler)
     # # Use JuMP to solve the linear programming problem
-    m = Model(with_optimizer(GLPK.Optimizer)) #, LogLevel = 0))
+    m = Model(GLPK.Optimizer) #, LogLevel = 0))
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
     #@constraint(m, samp.prob.L * α .>= 0) # .>= samp.prob.f
@@ -80,8 +80,8 @@ end
 """
 Sample a new feasible point from the point `sampler.prev` in direction `Δ`.
 """
-function step(sampler, Δ)
-    prob = sampler.prob
+function step(samp, Δ)
+    prob = samp.prob
     #TODO: should add this to sampler type
     feasibility_tol = 1e-7
     scale_neg = -Inf
@@ -95,13 +95,13 @@ function step(sampler, Δ)
             continue
         end
         # We need to solve:
-        # x + Δ * scale = Bound => scale = (Bound - x) / Δ
+        # α + Δ * scale = Bound => scale = (Bound - α) / Δ
         #
         # (1 - bounds_tol):
         # make the bounds a little tighter according to the `bounds_tol` so that we have less
         # of a chance of leaving the boundary due to numerical error
-        scale_low = ((1 - sampler.bounds_tol) * prob.lower[i] - sampler.prev[i]) / Δ[i]
-        scale_upp = ((1 - sampler.bounds_tol) * prob.upper[i] - sampler.prev[i]) / Δ[i]
+        scale_low = ((1 - samp.bounds_tol) * prob.lower[i] - samp.prev[i]) / Δ[i]
+        scale_upp = ((1 - samp.bounds_tol) * prob.upper[i] - samp.prev[i]) / Δ[i]
 
         for sv in (scale_low, scale_upp)
             if sv < 0
@@ -119,32 +119,32 @@ function step(sampler, Δ)
     end
     # Inequality bounds
     # Inequalitity terms
-    Lx = sampler.prob.L * sampler.prev
-    LΔ = sampler.prob.L * Δ
-    #TODO: need to add seperate inequalities for the inequalities to `prob`
-    for i in eachindex(LΔ)
-        #ieq_low = ((1 - sampler.bounds_tol[i]) * prob.lower[i] - Lx[i]) / LΔ[i]
-        # Assume the lower bound is 0, and we have no upper bound
-        ieq_low = -Lx[i] / LΔ[i]
-        #ieq_upp = ((1 - sampler.bounds_tol[i]) * prob.upper[i] - Lx[i]) / LΔ[i]
-        for sv in (ieq_low,) #, ieq_upp)
-            if sv < 0
-                # Find the largest negative scaling
-                if sv > scale_neg
-                    scale_neg = sv
-                end
-            else
-                # Find the smallest positive scaling
-                if sv < scale_pos
-                    scale_pos = sv
-                end
-            end
-        end
-    end
+    # Lx = samp.prob.L * samp.prev
+    # LΔ = samp.prob.L * Δ
+    # #TODO: need to add seperate inequalities for the inequalities to `prob`
+    # for i in eachindex(LΔ)
+    #     #ieq_low = ((1 - sampler.bounds_tol[i]) * prob.lower[i] - Lx[i]) / LΔ[i]
+    #     # Assume the lower bound is 0, and we have no upper bound
+    #     ieq_low = -Lx[i] / LΔ[i]
+    #     ieq_upp = ((1 - sampler.bounds_tol[i]) * prob.upper[i] - Lx[i]) / LΔ[i]
+    #     for sv in (ieq_low, ieq_upp)
+    #         if sv < 0
+    #             # Find the largest negative scaling
+    #             if sv > scale_neg
+    #                 scale_neg = sv
+    #             end
+    #         else
+    #             # Find the smallest positive scaling
+    #             if sv < scale_pos
+    #                 scale_pos = sv
+    #             end
+    #         end
+    #     end
+    # end
 
     scale = rand(Uniform(scale_neg, scale_pos))
 
-    return sampler.prev + scale * Δ
+    return samp.prev + scale * Δ
 end
 
 function update!(samp::ACHRSampler, Δ)
