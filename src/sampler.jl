@@ -55,19 +55,21 @@ function warmup_sampler!(samp::HRSampler)
     m = Model(GLPK.Optimizer)
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
+    @constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
+
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
         @objective(m, sense, sum(α))
         optimize!(m)
         if termination_status(m) == MOI.INFEASIBLE
             samp.feasible = false
             return :Infeasible
-            #continue
         end
         if termination_status(m) == MOI.OPTIMAL
             push!(init_prev, value.(α))
         end
     end
     samp.prev = mean(init_prev)
+    samp.feasible = true
     return samp
 end
 
@@ -155,12 +157,12 @@ function step(samp, Δ)
     # Inequalitity terms
     # Lx = samp.prob.L * samp.prev
     # LΔ = samp.prob.L * Δ
-    # #TODO: need to add seperate inequalities for the inequalities to `prob`
+    # #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
     # for i in eachindex(LΔ)
-    #     #ieq_low = ((1 - sampler.bounds_tol[i]) * prob.lower[i] - Lx[i]) / LΔ[i]
+    #     ieq_low = ((1 - samp.bounds_tol) * samp.prob.lower[i] - Lx[i]) / LΔ[i]
     #     # Assume the lower bound is 0, and we have no upper bound
-    #     ieq_low = -Lx[i] / LΔ[i]
-    #     ieq_upp = ((1 - sampler.bounds_tol[i]) * prob.upper[i] - Lx[i]) / LΔ[i]
+    #     #ieq_low = -Lx[i] / LΔ[i]
+    #     ieq_upp = ((1 - samp.bounds_tol) * samp.prob.upper[i] - Lx[i]) / LΔ[i]
     #     for sv in (ieq_low, ieq_upp)
     #         if sv < 0
     #             # Find the largest negative scaling
