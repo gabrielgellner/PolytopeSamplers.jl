@@ -23,7 +23,10 @@ mutable struct HRSampler{T <: AbstractMatrixConstraintProblem}
     prob::T
     Z::Matrix{Float64} # nullspace of prob.E
     # Chain initialization
-    n_samples::Int # how many samples have already been generated
+    warmup::Vector{Vector{Float64}}
+    center::Vector{Float64}
+    n_warmup::Int
+    n_samples::Int # how many samples have already been generated, used in center calculations
     prev::Vector{Float64}
     # Numerical checks
     feasibility_tol::Float64 # 1e-15 is a good start
@@ -49,37 +52,37 @@ end
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.r, 0.0, atol = atol))
 
-function warmup_sampler!(samp::HRSampler)
-    init_prev = Vector{eltype(samp.prev)}[]
+# function warmup_sampler!(samp::HRSampler)
+#     init_prev = Vector{eltype(samp.prev)}[]
+#     # # Use JuMP to solve the linear programming problem
+#     m = Model(GLPK.Optimizer)
+#     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
+#     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
+#     @constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
+#
+#     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
+#         @objective(m, sense, sum(α))
+#         optimize!(m)
+#         if termination_status(m) == MOI.INFEASIBLE
+#             samp.feasible = false
+#             return :Infeasible
+#         end
+#         if termination_status(m) == MOI.OPTIMAL
+#             push!(init_prev, value.(α))
+#         end
+#     end
+#     samp.prev = mean(init_prev)
+#     samp.feasible = true
+#     return samp
+# end
+
+#TODO: if I call this more than once, I will get double the warm up points
+function warmup_sampler!(samp)
     # # Use JuMP to solve the linear programming problem
     m = Model(GLPK.Optimizer)
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
     @constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
-
-    for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
-        @objective(m, sense, sum(α))
-        optimize!(m)
-        if termination_status(m) == MOI.INFEASIBLE
-            samp.feasible = false
-            return :Infeasible
-        end
-        if termination_status(m) == MOI.OPTIMAL
-            push!(init_prev, value.(α))
-        end
-    end
-    samp.prev = mean(init_prev)
-    samp.feasible = true
-    return samp
-end
-
-#TODO: if I call this more than once, I will get double the warm up points
-function warmup_sampler!(samp::ACHRSampler)
-    # # Use JuMP to solve the linear programming problem
-    m = Model(GLPK.Optimizer)
-    @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
-    @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    #@constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
@@ -153,31 +156,35 @@ function step(samp, Δ)
             end
         end
     end
+    #@show scale_neg, scale_pos
     # Inequality bounds
     # Inequalitity terms
-    # Lx = samp.prob.L * samp.prev
-    # LΔ = samp.prob.L * Δ
-    # #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
-    # for i in eachindex(LΔ)
-    #     ieq_low = ((1 - samp.bounds_tol) * samp.prob.lower[i] - Lx[i]) / LΔ[i]
-    #     # Assume the lower bound is 0, and we have no upper bound
-    #     #ieq_low = -Lx[i] / LΔ[i]
-    #     ieq_upp = ((1 - samp.bounds_tol) * samp.prob.upper[i] - Lx[i]) / LΔ[i]
-    #     for sv in (ieq_low, ieq_upp)
-    #         if sv < 0
-    #             # Find the largest negative scaling
-    #             if sv > scale_neg
-    #                 scale_neg = sv
-    #             end
-    #         else
-    #             # Find the smallest positive scaling
-    #             if sv < scale_pos
-    #                 scale_pos = sv
-    #             end
-    #         end
-    #     end
-    # end
+    Lx = samp.prob.L * samp.prev
+    LΔ = samp.prob.L * Δ
+    #@show Δ
+    #@show Lx
+    #@show LΔ
+    #@show scale_neg, scale_pos
 
+    #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
+    for i in eachindex(LΔ)
+        #ieq_low = ((1 - samp.bounds_tol) * prob.lower[i] - Lx[i]) / LΔ[i]
+        #ieq_upp = ((1 - samp.bounds_tol) * prob.upper[i] - Lx[i]) / LΔ[i]
+        sv = -Lx[i] / LΔ[i]
+
+        if sv < 0
+            # Find the largest negative scaling
+            if sv > scale_neg
+                scale_neg = sv
+            end
+        else
+            # Find the smallest positive scaling
+            if sv < scale_pos
+                scale_pos = sv
+            end
+        end
+    end
+    #@show scale_neg, scale_pos
     scale = rand(Uniform(scale_neg, scale_pos))
 
     return samp.prev + scale * Δ
