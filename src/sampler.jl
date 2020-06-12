@@ -52,30 +52,6 @@ end
 
 is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.r, 0.0, atol = atol))
 
-# function warmup_sampler!(samp::HRSampler)
-#     init_prev = Vector{eltype(samp.prev)}[]
-#     # # Use JuMP to solve the linear programming problem
-#     m = Model(GLPK.Optimizer)
-#     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
-#     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-#     @constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
-#
-#     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
-#         @objective(m, sense, sum(α))
-#         optimize!(m)
-#         if termination_status(m) == MOI.INFEASIBLE
-#             samp.feasible = false
-#             return :Infeasible
-#         end
-#         if termination_status(m) == MOI.OPTIMAL
-#             push!(init_prev, value.(α))
-#         end
-#     end
-#     samp.prev = mean(init_prev)
-#     samp.feasible = true
-#     return samp
-# end
-
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp)
     # # Use JuMP to solve the linear programming problem
@@ -119,7 +95,8 @@ end
 """
 Sample a new feasible point from the point `sampler.prev` in direction `Δ`.
 """
-function step(samp, Δ)
+function step(samp, Δin)
+    Δ = copy(Δin)
     prob = samp.prob
     #TODO: should add this to sampler type
     feasibility_tol = 1e-7
@@ -128,9 +105,13 @@ function step(samp, Δ)
     for i in eachindex(Δ)
         # If any of the directions are near zero we should not sample in that direction as it will
         # not be in the convex space (i.e. that dimension is fixed and will not vary)
-        if isapprox(Δ[i], 0, atol = feasibility_tol)
-            # A degenerate direction dimensions, skip this dimension
-            #@show "Hit and Run search direction is length 0"
+        # if isapprox(Δ[i], 0, atol = feasibility_tol)
+        #     # A degenerate direction dimensions, skip this dimension
+        #     #@show "Hit and Run search direction is length 0"
+        #     continue
+        # end
+        if abs(Δ[i]) < feasibility_tol
+            Δ[i] = 0.0
             continue
         end
         # We need to solve:
@@ -168,9 +149,12 @@ function step(samp, Δ)
 
     #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
     for i in eachindex(LΔ)
+        if abs(LΔ[i]) < feasibility_tol
+            continue
+        end
         #ieq_low = ((1 - samp.bounds_tol) * prob.lower[i] - Lx[i]) / LΔ[i]
         #ieq_upp = ((1 - samp.bounds_tol) * prob.upper[i] - Lx[i]) / LΔ[i]
-        sv = -Lx[i] / LΔ[i]
+        sv = (samp.bounds_tol - Lx[i]) / LΔ[i]
 
         if sv < 0
             # Find the largest negative scaling
