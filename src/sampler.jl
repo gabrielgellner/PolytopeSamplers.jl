@@ -58,7 +58,7 @@ function warmup_sampler!(samp)
     m = Model(GLPK.Optimizer)
     @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
     @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    @constraint(m, samp.prob.L * α .>= 0) #TODO: why doesn't this work?
+    @constraint(m, samp.prob.L * α .>= 0)
 
     # Warm up along each individual dimension to get the Min and Max to form a spanning set
     for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
@@ -179,12 +179,12 @@ function update!(samp::HRSampler, Δ)
     samp.n_samples += 1
 end
 
-function update!(samp::ACHRSampler, Δ)
-    samp.prev = step(samp, Δ)
-    # update the center given the new iteration
-    samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
-    samp.n_samples += 1
-end
+# function update!(samp::ACHRSampler, Δ)
+#     samp.prev = step(samp, Δ)
+#     # update the center given the new iteration
+#     samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
+#     samp.n_samples += 1
+# end
 
 function hr_sample!(samp::HRSampler, n::Int; thinning::Int = 1, burn_in::Int = -1)
     if burn_in == -1 # what is the correct way to do this in a typed manner?
