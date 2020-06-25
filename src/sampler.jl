@@ -50,7 +50,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     feasible::Bool
 end
 
-is_feasible(prob, x; atol = 1e-15) = all(isapprox.(prob.E * x + prob.r, 0.0, atol = atol))
+is_feasible(prob, α; atol = 1e-15) = all(isapprox.(prob.E * α + prob.r, 0.0, atol = atol))
 
 #TODO: if I call this more than once, I will get double the warm up points
 function warmup_sampler!(samp)
@@ -179,12 +179,12 @@ function update!(samp::HRSampler, Δ)
     samp.n_samples += 1
 end
 
-# function update!(samp::ACHRSampler, Δ)
-#     samp.prev = step(samp, Δ)
-#     # update the center given the new iteration
-#     samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
-#     samp.n_samples += 1
-# end
+function update!(samp::ACHRSampler, Δ)
+    samp.prev = step(samp, Δ)
+    # update the center given the new iteration
+    samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
+    samp.n_samples += 1
+end
 
 function hr_sample!(samp::HRSampler, n::Int; thinning::Int = 1, burn_in::Int = -1)
     if burn_in == -1 # what is the correct way to do this in a typed manner?
