@@ -137,15 +137,10 @@ function step(samp, Δin)
             end
         end
     end
-    #@show scale_neg, scale_pos
     # Inequality bounds
     # Inequalitity terms
     Lx = samp.prob.L * samp.prev
     LΔ = samp.prob.L * Δ
-    #@show Δ
-    #@show Lx
-    #@show LΔ
-    #@show scale_neg, scale_pos
 
     #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
     for i in eachindex(LΔ)
