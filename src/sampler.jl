@@ -1,4 +1,5 @@
 using LinearAlgebra
+using Random
 using Distributions
 using JuMP
 using GLPK
@@ -32,6 +33,7 @@ mutable struct HRSampler{T <: AbstractMatrixConstraintProblem}
     feasibility_tol::Float64 # 1e-15 is a good start
     bounds_tol::Float64
     feasible::Bool
+    RNG::Random.MersenneTwister
 end
 
 mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
@@ -48,6 +50,7 @@ mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
     feasibility_tol::Float64 # 1e-15 is a good start
     bounds_tol::Float64
     feasible::Bool
+    RNG::Random.MersenneTwister
 end
 
 is_feasible(prob, α; atol = 1e-15) = all(isapprox.(prob.E * α + prob.r, 0.0, atol = atol))
@@ -164,7 +167,7 @@ function step(samp, Δin)
         end
     end
     #@show scale_neg, scale_pos
-    scale = rand(Uniform(scale_neg, scale_pos))
+    scale = rand(samp.RNG, Uniform(scale_neg, scale_pos))
 
     return samp.prev + scale * Δ
 end
