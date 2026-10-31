@@ -232,7 +232,11 @@ function AbstractMCMC.bundle_samples(
         samples::Vector{Vector{Float64}}, ::Warmup, ::PolytopeSampler, state, ::Type{Any};
         kwargs...,
     )
-    return reduce(hcat, samples; init = zeros(length(state.x), 0))
+    X = Matrix{Float64}(undef, length(state.x), length(samples))
+    for (j, x) in enumerate(samples)
+        X[:, j] = x
+    end
+    return X
 end
 
 """
