@@ -30,8 +30,9 @@ lint:
 test:
     {{ julia }} --project -e 'using Pkg; Pkg.test()'
 
-# Run every check that CI runs
-check: fmt-check lint test
+# Run every check (format, lint, tests); run before every push and merge, as there is no
+# hosted CI
+ci: fmt-check lint test
 
 # ── Release ───────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ release-3-pr:
     git push -u origin "${BRANCH}"
     NOTES=$(just release-notes "${VER}")
     gh pr create --base main --head "${BRANCH}" --title "chore(release): ${VER}" --body "${NOTES}"
-    echo "When CI is green on the PR, run: just release-4-merge"
+    echo "After just ci passes, run: just release-4-merge"
 
 # Step 4 — Merge the release PR, tag its merge commit, create the GitHub release
 [group('release')]
