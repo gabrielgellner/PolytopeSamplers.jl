@@ -43,6 +43,10 @@ use is sampling the interaction strengths of food webs consistent with an equili
   PolyRound (cube, skinny cube, simplex, vertex starts, Chebyshev centers). Add the checks
   of a reference implementation here when porting a new method.
 - `test/`: one test file per source file. Workspace project with the test-only dependencies.
+- `docs/`: the Documenter.jl manual, a workspace project (`just docs`). Pages in
+  `docs/src/` run their `@example` blocks at build time, so a stale example fails the
+  build; `checkdocs = :exports` fails it when an exported name is missing from `api.md`.
+  Update the benchmark tables in `samplers.md` when a sampler's performance changes.
 - `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub):
   `foodweb_polytope.jl` builds the food web polytope, `constrained_foodweb.jl` compares the
   samplers on one web, `foodweb_replicates.jl` runs many webs in parallel threads. The food
@@ -93,6 +97,7 @@ just setup      # install Runic and JETLS as Julia apps, instantiate environment
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
 just stress     # convergence stress tests (about 10 minutes)
+just docs       # build the documentation
 just example constrained_foodweb
 ```
 

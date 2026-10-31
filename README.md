@@ -10,6 +10,12 @@ using Pkg
 Pkg.add(url = "https://github.com/gabrielgellner/PolytopeSamplers.jl")
 ```
 
+## Documentation
+
+The manual in `docs/` covers defining polytopes, sampling and convergence, choosing a
+sampler (with benchmarks), non-uniform targets, parallel sampling, how the samplers are
+tested, and the full API. Build it with `just docs`, which opens `docs/build/index.html`.
+
 ## Usage
 
 A `Polytope` is the set of `x` with `lower .<= x .<= upper`, `A * x .<= b` and `C * x .== d`.
@@ -193,6 +199,7 @@ Tasks are run with [just](https://github.com/casey/just):
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
+just docs       # build the documentation and open it
 just stress     # convergence stress tests and mixing-cost scaling (about 10 minutes)
 ```
 

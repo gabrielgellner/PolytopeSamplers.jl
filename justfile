@@ -30,6 +30,11 @@ lint:
 test:
     {{ julia }} --project -e 'using Pkg; Pkg.test()'
 
+# Build the documentation into docs/build and open it
+docs:
+    {{ julia }} --project=docs docs/make.jl
+    open docs/build/index.html
+
 # Stress tests of convergence and hard geometry (about 10 minutes; not part of ci)
 stress:
     {{ julia }} --project=test test/stress.jl
