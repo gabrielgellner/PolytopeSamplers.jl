@@ -26,4 +26,5 @@ AbstractMCMC.setprogress!(false)
     include("warmup.jl")
     include("sampler.jl")
     include("diagnostics.jl")
+    include("correctness.jl")
 end
