@@ -1,4 +1,4 @@
-using HRMCMC: Polytope, Warmup, warmup
+using PolytopeSamplers: Polytope, Warmup, warmup
 using LinearAlgebra: I, norm
 
 @testset "warmup" begin

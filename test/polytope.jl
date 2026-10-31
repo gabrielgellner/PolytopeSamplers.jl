@@ -1,4 +1,4 @@
-using HRMCMC: Polytope, isfeasible
+using PolytopeSamplers: Polytope, isfeasible
 
 @testset "Polytope" begin
     triangle = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])

@@ -1,4 +1,4 @@
-# Development tasks for HRMCMC.jl. Run `just` to list recipes.
+# Development tasks for PolytopeSamplers.jl. Run `just` to list recipes.
 
 # Julia apps (runic, jetls) are installed to ~/.julia/bin
 export PATH := home_directory() / ".julia" / "bin" + ":" + env_var("PATH")

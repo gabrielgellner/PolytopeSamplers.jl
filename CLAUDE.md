@@ -1,7 +1,8 @@
-# HRMCMC.jl
+# PolytopeSamplers.jl
 
-Uniform sampling of convex polytopes by hit-and-run MCMC (plain hit-and-run and artificial
-centering hit-and-run), with warmup linear programs solved by HiGHS through JuMP. The main
+Uniform sampling of convex polytopes by MCMC (hit-and-run and artificial centering
+hit-and-run so far), with warmup linear programs solved by HiGHS through JuMP. Called
+HRMCMC.jl until 2026. The main
 use is sampling the interaction strengths of food webs consistent with an equilibrium, as in
 [constrained-foodwebs](https://github.com/gabrielgellner/constrained-foodwebs).
 
@@ -14,7 +15,8 @@ use is sampling the interaction strengths of food webs consistent with an equili
   and an orthonormal basis of the directions that keep them.
 - `src/sampler.jl`: `HitAndRun`, `ACHR`, the allocation-free step and `hr_sample`.
 - `test/`: one test file per source file. Workspace project with the test-only dependencies.
-- `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub).
+- `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub). The food
+  web polytope will move to its own package depending on this one and FoodWebs.jl.
 - The 2018–2019 history of the original prototype is kept in git; the package was rewritten
   in 2026 for Julia 1.13.
 
@@ -28,6 +30,15 @@ use is sampling the interaction strengths of food webs consistent with an equili
 - `step!` is type stable and allocation free; `test/sampler.jl` enforces this with JET's
   `@test_opt` and AllocCheck. Keep it so when adding a method.
 - Julia 1.13 only. Imports are explicit (`using X: a, b`), checked by ExplicitImports.
+
+## Adapting code from other samplers
+
+The package is GPL-3.0-or-later so that it can adapt code from volesti and dingo (LGPL-3),
+the COBRA Toolbox and PolytopeSamplerMatlab (GPL-3), COBREXA.jl (Apache-2.0), cobrapy
+(GPL-2+/LGPL-2+) and hopsy, PolyRound and polytopewalk (MIT). Port from the paper and read
+the reference code for the details that make it robust (tolerances, degenerate cases,
+step-size rules). When a function adapts code, say so in a comment above it, naming the
+project, file, commit and license, and keep the original copyright line.
 
 ## Tests
 

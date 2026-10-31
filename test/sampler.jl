@@ -1,4 +1,4 @@
-using HRMCMC: HRMCMC, ACHR, HitAndRun, Polytope, hr_sample, warmup
+using PolytopeSamplers: PolytopeSamplers, ACHR, HitAndRun, Polytope, hr_sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
 using Random: Xoshiro
@@ -43,7 +43,7 @@ const methods = (HitAndRun(), ACHR())
             A = [M zeros(3, 2)], b = f, C = [1.0 0.0 1.0 0.0], d = [6.0],
         )
         X = hr_sample(Xoshiro(4), P, 20_000; method = m, burn_in = 100)
-        @test all(x -> HRMCMC.isfeasible(P, x; atol = 1.0e-10), eachcol(X))
+        @test all(x -> PolytopeSamplers.isfeasible(P, x; atol = 1.0e-10), eachcol(X))
         @test all(==(2.0), X[4, :])
         @test maximum(abs.(X[1, :] .+ X[3, :] .- 6)) < 1.0e-12
     end
@@ -87,10 +87,10 @@ const methods = (HitAndRun(), ACHR())
     end
 
     @testset "steps are type stable and allocation free ($m)" for m in methods
-        c = HRMCMC.Chain(m, warmup(pentagon))
+        c = PolytopeSamplers.Chain(m, warmup(pentagon))
         rng = Xoshiro(1)
-        @test_opt HRMCMC.step!(rng, c)
-        @test isempty(check_allocs(HRMCMC.step!, (typeof(rng), typeof(c))))
+        @test_opt PolytopeSamplers.step!(rng, c)
+        @test isempty(check_allocs(PolytopeSamplers.step!, (typeof(rng), typeof(c))))
         @test_opt hr_sample(rng, c.warmup, 10; method = m)
     end
 end

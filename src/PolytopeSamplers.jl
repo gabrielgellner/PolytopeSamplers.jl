@@ -1,4 +1,4 @@
-module HRMCMC
+module PolytopeSamplers
 
 using HiGHS: HiGHS
 using JuMP: @constraint, @objective, @variable, INFEASIBLE, INFEASIBLE_OR_UNBOUNDED,

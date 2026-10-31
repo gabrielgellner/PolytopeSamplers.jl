@@ -1,4 +1,4 @@
-name = "HRMCMC"
+name = "PolytopeSamplers"
 uuid = "23957194-1ca4-53c5-ae50-e0ed682cc5dc"
 authors = ["Gabriel Gellner <gabrielgellner@gmail.com>"]
 version = "0.1.0"

@@ -17,7 +17,7 @@
 
 using FoodWebs: basal_species, generalized_cascade_network, spectral_abscissa, top_species,
     trophic_levels
-using HRMCMC: ACHR, Polytope, hr_sample, warmup
+using PolytopeSamplers: ACHR, Polytope, hr_sample, warmup
 using Random: Xoshiro
 using Statistics: mean
 

@@ -1,12 +1,12 @@
-# HRMCMC.jl
+# PolytopeSamplers.jl
 
-Uniform sampling of convex polytopes by hit-and-run Markov chain Monte Carlo, with plain
-hit-and-run and artificial centering hit-and-run (ACHR). Linear programs for the warmup are
-solved with [HiGHS](https://highs.dev).
+Uniform sampling of convex polytopes by Markov chain Monte Carlo: hit-and-run and artificial
+centering hit-and-run (ACHR). Linear programs for the warmup are solved with
+[HiGHS](https://highs.dev). The package was called HRMCMC.jl until 2026.
 
 ```julia
 using Pkg
-Pkg.add(url = "https://github.com/gabrielgellner/HRMCMC.jl")
+Pkg.add(url = "https://github.com/gabrielgellner/PolytopeSamplers.jl")
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ point and the directions in which the polytope has width; `hr_sample` runs the c
 returns one point per column.
 
 ```julia
-using HRMCMC, Random
+using PolytopeSamplers, Random
 
 # The triangle x ≥ 0, x1 + x2 ≤ 1
 P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])
@@ -44,7 +44,7 @@ with a given equilibrium, the problem of
 [FoodWebs.jl](https://github.com/gabrielgellner/FoodWebs.jl). Run it with
 `just example constrained_foodweb`.
 
-## Changes from the 2019 version
+## Changes from the 2019 version (HRMCMC.jl)
 
 - `ACHRSampler(problem)` and `hr_sample!(sampler, n)` are replaced by
   `hr_sample(rng, warmup(P), n; method = ACHR())`. The problem `E * α + r = 0, L * α >= 0`
@@ -69,4 +69,5 @@ just check      # formatting check, JETLS lint, and tests (what CI runs)
 
 ## License
 
-GPL-2.0, see `LICENSE.md`.
+GPL-3.0-or-later, see `LICENSE.md`. Parts of the package adapt code from other open-source
+samplers; each such file names its source and license.
