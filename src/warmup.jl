@@ -1,3 +1,9 @@
+# Gᵀ and G Gᵀ for the billiard walk, filled on first use under the lock
+mutable struct ReflectionCache
+    matrices::Union{Nothing, Tuple{Matrix{Float64}, Matrix{Float64}}}
+    const lock::ReentrantLock
+end
+
 """
     Warmup
 
@@ -15,6 +21,8 @@ direction in which the polytope has width and the rows of `G` have unit norm.
 - `zpoints`: `points` in `z` coordinates.
 - `radius`: the radius of the largest ball in `{z : G z ≤ h}`, near 1 when rounded.
 - `rounded`: whether `transform` rounds the polytope.
+
+With `warmup(P; extremes = false)`, `points` and `zpoints` have no columns.
 """
 struct Warmup <: AbstractModel
     polytope::Polytope
@@ -26,6 +34,27 @@ struct Warmup <: AbstractModel
     zpoints::Matrix{Float64}
     radius::Float64
     rounded::Bool
+    # Gᵀ and G Gᵀ for the billiard walk, computed on first use and shared by its chains
+    reflections::ReflectionCache
+end
+
+function Warmup(P, points, center, transform, G, h, zpoints, radius, rounded)
+    return Warmup(
+        P, points, center, transform, G, h, zpoints, radius, rounded,
+        ReflectionCache(nothing, ReentrantLock()),
+    )
+end
+
+# Gᵀ and G Gᵀ, computed once per warmup under its lock, so that chains on separate threads
+# share one copy instead of each holding an m × m matrix
+function reflection_matrices(w::Warmup)
+    cache = w.reflections
+    return lock(cache.lock) do
+        if cache.matrices === nothing
+            cache.matrices = (Matrix(w.G'), w.G * w.G')
+        end
+        cache.matrices
+    end
 end
 
 function Base.show(io::IO, w::Warmup)
@@ -36,26 +65,71 @@ function Base.show(io::IO, w::Warmup)
 end
 
 """
-    warmup(P::Polytope; rounding = true, optimizer = HiGHS.Optimizer, atol = 1e-6)
+    warmup([rng], P::Polytope; extremes = true, rounding = :ellipsoid,
+           optimizer = HiGHS.Optimizer, atol = 1e-6)
 
-Solve `2n` linear programs, minimizing and maximizing each of the `n` coordinates over `P`,
-and return a [`Warmup`](@ref) to [`sample`](@ref) from.
+Prepare `P` for sampling and return a [`Warmup`](@ref) to [`sample`](@ref) from.
 
-With `rounding = true`, change coordinates so that the polytope is close to round: the
-maximum-volume inscribed ellipsoid is mapped to the unit ball, repeatedly, until it is
-nearly a ball. Rounding costs a few dense factorizations of size the number of constraints,
-and makes every sampler take long steps in thin directions.
+With `extremes = true`, solve `2n` linear programs, minimizing and maximizing each of the
+`n` coordinates. The extreme points locate the constraints that hold with equality over all
+of `P`: a coordinate whose range is within `atol` of zero, or an inequality whose slack is
+within `atol` of zero at every extreme point. Chains move only in the directions that keep
+these equalities and `C * x .== d`. [`ACHR`](@ref) needs the extreme points.
 
-The extreme points also locate the constraints that hold with equality over all of `P`: a
-coordinate whose range is within `atol` of zero, or an inequality whose slack is within
-`atol` of zero at every extreme point. Chains move only in the directions that keep these
-equalities and the equalities `C * x .== d`, as any other direction leaves `P` at once.
+With `extremes = false`, solve one linear program for the largest ball inside `P` in the
+slice of `C * x .== d` and the fixed coordinates, as in multiphase Monte Carlo sampling
+([`mmcs`](@ref)). This costs far less for large `n`: the `2n` programs took 44 s for
+`n = 200` with 1000 constraints. If that ball has radius below `atol`, `P` has equalities
+beyond the explicit ones, and `warmup` falls back to `extremes = true`.
 
-Throws an `ArgumentError` when `P` is empty or unbounded. `optimizer` is any JuMP optimizer
-for linear programs; each call builds its own model, so separate tasks may call `warmup`
-at the same time.
+`rounding` changes coordinates so that the polytope is close to round, which makes every
+sampler take long steps in thin directions:
+
+- `:ellipsoid` (or `true`): map the maximum-volume inscribed ellipsoid to the unit ball,
+  repeatedly, until it is nearly a ball. Each round factors dense matrices of size the
+  number of constraints.
+- `:samples`: draw billiard-walk samples and map their principal axes to equal lengths,
+  repeatedly, as in multiphase Monte Carlo sampling. Uses `rng`.
+- `:none` (or `false`).
+
+Throws an `ArgumentError` when `P` is empty or unbounded (with `extremes = false`, an
+unbounded `P` may instead raise the error while sampling). `optimizer` is any JuMP
+optimizer for linear programs; each call builds its own model, so separate tasks may call
+`warmup` at the same time.
 """
-function warmup(P::Polytope; rounding::Bool = true, optimizer = HiGHS.Optimizer, atol::Real = 1.0e-6)
+function warmup(
+        rng::AbstractRNG, P::Polytope; extremes::Bool = true,
+        rounding::Union{Bool, Symbol} = :ellipsoid, optimizer = HiGHS.Optimizer,
+        atol::Real = 1.0e-6,
+    )
+    rounding = rounding === true ? :ellipsoid : rounding === false ? :none : rounding
+    rounding in (:ellipsoid, :samples, :none) ||
+        throw(ArgumentError("rounding must be :ellipsoid, :samples or :none, got :$rounding"))
+    n = nvars(P)
+    if extremes
+        points, center, T = extreme_slice(P, optimizer, atol)
+        G, h = reduced_constraints(P, center, T)
+    else
+        slice = chebyshev_slice(P, optimizer, atol)
+        slice === nothing && return warmup(rng, P; extremes = true, rounding, optimizer, atol)
+        center, T, G, h = slice
+        points = zeros(n, 0)
+    end
+    if rounding === :ellipsoid
+        round_polytope!(center, T, G, h; optimizer)
+    elseif rounding === :samples
+        round_by_samples!(rng, P, center, T, G, h; optimizer)
+    end
+    zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
+    radius = isempty(T) ? 0.0 : last(chebyshev_center(G, h, optimizer))
+    return Warmup(P, points, center, T, G, h, zpoints, radius, rounding !== :none)
+end
+
+warmup(P::Polytope; kwargs...) = warmup(default_rng(), P; kwargs...)
+
+# The extreme points of each coordinate, a center on the equalities, and a basis of the
+# directions in which the polytope has width
+function extreme_slice(P::Polytope, optimizer, atol)
     model, x = lp_model(P, optimizer)
     optimize!(model)
     is_solved_and_feasible(model) || throw(ArgumentError("the polytope is empty"))
@@ -80,19 +154,39 @@ function warmup(P::Polytope; rounding::Bool = true, optimizer = HiGHS.Optimizer,
         center .-= pinv(Ceq) * (Ceq * center .- deq)
     end
     T = direction_basis(Ceq, points, center, atol)
-    G, h = reduced_constraints(P, center, T)
-    if rounding
-        round_polytope!(center, T, G, h; optimizer)
+    return points, center, T
+end
+
+# The slice of `C * x .== d` and the fixed coordinates, centered on the largest ball inside
+# the polytope in that slice, from one linear program. Returns `nothing` when the ball has
+# radius below `atol`, as the polytope then has further equalities.
+function chebyshev_slice(P::Polytope, optimizer, atol)
+    n = nvars(P)
+    fixed = findall(P.lower .== P.upper)
+    E = Matrix{Float64}(I, n, n)
+    Ceq = [P.C; E[fixed, :]]
+    deq = [P.d; P.lower[fixed]]
+    x0 = isempty(deq) ? zeros(n) : pinv(Ceq) * deq
+    if !isempty(deq) && norm(Ceq * x0 .- deq) > atol * max(1, norm(deq))
+        throw(ArgumentError("the polytope is empty: its equalities have no solution"))
     end
-    zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
-    radius = isempty(T) ? 0.0 : last(chebyshev_center(G, h, optimizer))
-    return Warmup(P, points, center, T, G, h, zpoints, radius, rounding)
+    T = isempty(deq) ? E : nullspace(Ceq)
+    T[abs.(T) .< ZERO_TOL] .= 0
+    G, h = reduced_constraints(P, x0, T; clamp = false)
+    if size(T, 2) == 0
+        isfeasible(P, x0; atol) || throw(ArgumentError("the polytope is empty"))
+        return x0, T, G, max.(h, 0.0)
+    end
+    c, r = chebyshev_center(G, h, optimizer)
+    r > atol || return nothing
+    return shift!(x0, T, G, h, c)
 end
 
 # The bounds and inequalities of `P` as `G z ≤ h` for `x = center + T z`, with unit-norm rows.
 # Rows that are zero on the slice (fixed coordinates, inequalities that hold with equality)
-# are left out, and slacks are clamped at zero against rounding error in `center`.
-function reduced_constraints(P::Polytope, center, T)
+# are left out, and slacks are clamped at zero against rounding error in `center` unless
+# `clamp = false` (when `center` need not be inside).
+function reduced_constraints(P::Polytope, center, T; clamp::Bool = true)
     k = size(T, 2)
     rows = Vector{Float64}[]
     rhs = Float64[]
@@ -100,7 +194,7 @@ function reduced_constraints(P::Polytope, center, T)
         r = norm(g)
         if r > ROW_TOL * scale
             push!(rows, g ./ r)
-            push!(rhs, max(s, 0.0) / r)
+            push!(rhs, (clamp ? max(s, 0.0) : s) / r)
         end
         return
     end

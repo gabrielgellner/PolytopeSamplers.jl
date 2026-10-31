@@ -12,8 +12,8 @@ stopped by the first facet it meets.
 and inscribed radius `r` ([`Warmup`](@ref)`.radius`, near 1 after rounding), as in volesti.
 A trajectory that makes more than `max_reflections` reflections (default `1000k`) is
 abandoned and the chain stays put for that step. A reflection costs `O(m)` for `m`
-constraints, as the rates `G v` are updated from the precomputed `G Gᵀ`; each chain stores
-that `m × m` matrix.
+constraints, as the rates `G v` are updated from the precomputed `G Gᵀ`, an `m × m` matrix
+that the chains on one [`Warmup`](@ref) share.
 
 Gryazina, E. & Polyak, B. (2014). Random sampling: billiard walk algorithm. European Journal
 of Operational Research 238, 497–504. <https://doi.org/10.1016/j.ejor.2014.03.041>
@@ -52,8 +52,8 @@ mutable struct BilliardState
     const slack::Vector{Float64} # h - G z
     const Gv::Vector{Float64}
     const zstart::Vector{Float64} # start of the trajectory, restored if it is abandoned
-    const Gt::Matrix{Float64} # Gᵀ, whose columns are the facet normals
-    const GG::Matrix{Float64} # G Gᵀ
+    const Gt::Matrix{Float64} # Gᵀ, whose columns are the facet normals (shared)
+    const GG::Matrix{Float64} # G Gᵀ (shared)
     const trajectory_length::Float64
     const max_reflections::Int
     steps::Int # steps taken, for refreshing the slacks
@@ -63,9 +63,10 @@ function chain_state(method::BilliardWalk, w::Warmup)
     k = size(w.transform, 2)
     m = length(w.h)
     L = something(method.trajectory_length, 2 * sqrt(k) * w.radius)
+    Gt, GG = reflection_matrices(w)
     return BilliardState(
-        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k),
-        Matrix(w.G'), w.G * w.G', L, something(method.max_reflections, 1000 * k), 0,
+        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k), Gt, GG,
+        L, something(method.max_reflections, 1000 * k), 0,
     )
 end
 

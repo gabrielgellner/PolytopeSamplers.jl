@@ -19,8 +19,13 @@ function chebyshev_center(G, h, optimizer)
     @constraint(model, G * z .+ r .<= h)
     @objective(model, MAX_SENSE, r)
     optimize!(model)
-    is_solved_and_feasible(model) ||
-        error("the Chebyshev center linear program stopped with status $(termination_status(model))")
+    if !is_solved_and_feasible(model)
+        status = termination_status(model)
+        status == INFEASIBLE && throw(ArgumentError("the polytope is empty"))
+        status in (DUAL_INFEASIBLE, INFEASIBLE_OR_UNBOUNDED) &&
+            throw(ArgumentError("the polytope is unbounded: it holds balls of any radius"))
+        error("the Chebyshev center linear program stopped with status $status")
+    end
     return value.(z), value(r)
 end
 
@@ -181,5 +186,61 @@ end
 function shift!(center, T, G, h, c)
     center .+= T * c
     h .-= G * c
+    return center, T, G, h
+end
+
+# Adapted from volesti, include/sampling/mmcs.hpp (commit 064e18c, LGPL-3.0; Copyright (c)
+# 2012-2024 Vissarion Fisikopoulos, 2018-2024 Apostolos Chalkis): the rounding phases of
+# multiphase Monte Carlo sampling, which scale the principal axes of billiard-walk samples
+# whose singular values are at least twice the smallest, with trajectories of mean length
+# 6√k r, and stop when the largest ratio is at most 3 or after 20 phases. Unlike volesti,
+# rounding also stops when a phase lowers the largest ratio by less than 10%: with N
+# correlated samples the ratios of a round body do not fall below a noise floor near
+# (1 + √(k/N_eff)) / (1 - √(k/N_eff)), which can exceed 3, and further phases would only
+# stretch noise.
+"""
+    round_by_samples!(rng, P, center, T, G, h; optimizer, samples = max(20k, 1000),
+                      maxiter = 20, max_ratio = 3)
+
+Round the polytope `x = center + T z, G z ≤ h` in place from samples: each phase draws
+`samples` points by the billiard walk from the Chebyshev center, takes the singular value
+decomposition of the centered samples, and stretches the coordinates so that every
+principal axis with at least twice the length of the shortest gets that length.
+"""
+function round_by_samples!(
+        rng::AbstractRNG, P, center, T, G, h; optimizer, samples::Union{Nothing, Integer} = nothing,
+        maxiter::Integer = 20, max_ratio::Real = 3,
+    )
+    k = size(G, 2)
+    k == 0 && return center, T, G, h
+    N = something(samples, max(20k, 1000))
+    Z = Matrix{Float64}(undef, k, N)
+    previous = Inf
+    for _ in 1:maxiter
+        c, r = chebyshev_center(G, h, optimizer)
+        shift!(center, T, G, h, c)
+        w = Warmup(P, zeros(length(center), 0), center, T, G, h, zeros(k, 0), r, false)
+        state = chain_state(BilliardWalk(trajectory_length = 6 * sqrt(k) * r), w)
+        for _ in 1:k
+            step!(rng, state)
+        end
+        for j in 1:N
+            step!(rng, state)
+            Z[:, j] = state.z
+        end
+        μ = vec(mean(Z; dims = 2))
+        F = svd(Z .- μ)
+        F.S[end] > 0 || throw(ArgumentError("the polytope has no width in some direction of its slice"))
+        s = F.S ./ F.S[end]
+        (s[1] < 2 || s[1] > 0.9 * previous) && break
+        previous = s[1]
+        s[s .< 2] .= 1
+        shift!(center, T, G, h, μ)
+        L = F.U * Diagonal(s)
+        T .= T * L
+        G .= G * L
+        normalize_rows!(G, h)
+        s[1] <= max_ratio && break
+    end
     return center, T, G, h
 end
