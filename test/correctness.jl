@@ -18,7 +18,9 @@ using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRu
 using LinearAlgebra: I, svdvals
 using Random: Xoshiro
 
-const all_methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
+const all_methods = (
+    HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
+)
 
 # Four chains and their diagnostics
 function run_chains(w, method; n = 2_000, thinning = 5, seed = 1)
