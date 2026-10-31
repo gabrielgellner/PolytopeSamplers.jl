@@ -30,7 +30,7 @@ lint:
 test:
     {{ julia }} --project -e 'using Pkg; Pkg.test()'
 
-# Stress tests of convergence and hard geometry (about 5 minutes; not part of ci)
+# Stress tests of convergence and hard geometry (about 10 minutes; not part of ci)
 stress:
     {{ julia }} --project=test test/stress.jl
 

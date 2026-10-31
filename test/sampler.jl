@@ -1,4 +1,5 @@
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC,
+    DikinWalk,
     HitAndRun, VaidyaWalk, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
@@ -20,7 +21,7 @@ end
 
 const methods = (
     HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
-    DikinWalk(), VaidyaWalk(),
+    DikinWalk(), VaidyaWalk(), CRHMC(),
 )
 
 # The Metropolis-filtered barrier walks need far longer chains for the fixed tolerances of
@@ -156,7 +157,8 @@ const fast_methods = filter(m -> !(m isa Union{DikinWalk, VaidyaWalk}), methods)
         @test count(j -> X[:, j] == X[:, j - 1], 2:200) > 100
     end
 
-    @testset "slacks updated in place match recomputed slacks ($m)" for m in methods
+    # CRHMC keeps slacks with its cached metric, which may be at the last proposal
+    @testset "slacks updated in place match recomputed slacks ($m)" for m in filter(m -> !(m isa CRHMC), methods)
         w = warmup(pentagon)
         c = PolytopeSamplers.chain_state(m, w)
         rng = Xoshiro(4)

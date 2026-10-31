@@ -12,7 +12,8 @@
 # - PolyRound, PolyRound/unit_tests.py (commit 6d3aee7, MIT): the Chebyshev center of a
 #   symmetric and a cut cube, and a polytope that the equalities reduce to a point.
 
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC,
+    DikinWalk,
     HitAndRun, VaidyaWalk,
     MCMCSerial,
     Polytope, diagnostics, sample, warmup
@@ -21,7 +22,7 @@ using Random: Xoshiro
 
 const all_methods = (
     HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
-    DikinWalk(), VaidyaWalk(),
+    DikinWalk(), VaidyaWalk(), CRHMC(),
 )
 
 # Four chains and their diagnostics. The Metropolis-filtered barrier walks need about 50

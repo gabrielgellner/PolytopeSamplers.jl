@@ -255,8 +255,12 @@ function AbstractMCMC.step(rng::AbstractRNG, w::Warmup, method::PolytopeSampler;
     return copy(c.x), c
 end
 
+# Samplers may report problems found during their steps here, outside the hot loop
+check_state(c) = c
+
 function AbstractMCMC.step(rng::AbstractRNG, ::Warmup, ::PolytopeSampler, c; kwargs...)
     step!(rng, c)
+    check_state(c)
     return copy(c.x), c
 end
 
