@@ -1,12 +1,15 @@
 module PolytopeSamplers
 
+using AbstractMCMC: AbstractMCMC, AbstractMCMCEnsemble, AbstractModel, AbstractSampler,
+    MCMCDistributed, MCMCSerial, MCMCThreads, sample
 using HiGHS: HiGHS
 using JuMP: @constraint, @objective, @variable, INFEASIBLE, INFEASIBLE_OR_UNBOUNDED,
     MAX_SENSE, MIN_SENSE, Model,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
 using LinearAlgebra: I, mul!, norm, normalize!, nullspace, pinv, svd
-using Random: AbstractRNG, default_rng, randn!
+using Random: AbstractRNG, randn!
+using MCMCDiagnosticTools: ess_rhat
 using Statistics: mean
 
 include("polytope.jl")
@@ -17,7 +20,11 @@ export warmup
 public Warmup
 
 include("sampler.jl")
-export ACHR, HitAndRun, hr_sample
+export ACHR, HitAndRun
+export MCMCDistributed, MCMCSerial, MCMCThreads, sample
 public AbstractHitAndRun
+
+include("diagnostics.jl")
+export diagnostics
 
 end

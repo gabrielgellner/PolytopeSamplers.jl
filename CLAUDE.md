@@ -13,7 +13,10 @@ use is sampling the interaction strengths of food webs consistent with an equili
 - `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs and finds the
   equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities)
   and an orthonormal basis of the directions that keep them.
-- `src/sampler.jl`: `HitAndRun`, `ACHR`, the allocation-free step and `hr_sample`.
+- `src/sampler.jl`: `HitAndRun`, `ACHR`, the allocation-free step and the AbstractMCMC
+  interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`
+  are `AbstractMCMC.AbstractModel`s.
+- `src/diagnostics.jl`: `diagnostics`, ESS and R̂ per coordinate via MCMCDiagnosticTools.
 - `test/`: one test file per source file. Workspace project with the test-only dependencies.
 - `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub). The food
   web polytope will move to its own package depending on this one and FoodWebs.jl.
@@ -22,7 +25,8 @@ use is sampling the interaction strengths of food webs consistent with an equili
 
 ## Conventions
 
-- Samples are the columns of the returned matrix.
+- Samples are the columns of the returned matrix; several chains are a vector of matrices.
+- Compare samplers by effective samples per second from `diagnostics` over several chains.
 - Functions that draw random numbers take an optional leading `rng::AbstractRNG`.
 - The step clamps constraint slacks at zero and ignores direction components below
   `ZERO_TOL`, so rounding never gives an interval that excludes the current point; it does

@@ -1,4 +1,4 @@
-using PolytopeSamplers: PolytopeSamplers, ACHR, HitAndRun, Polytope, hr_sample, warmup
+using PolytopeSamplers: PolytopeSamplers, ACHR, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
 using Random: Xoshiro
@@ -19,20 +19,34 @@ end
 
 const methods = (HitAndRun(), ACHR())
 
-@testset "hr_sample" begin
-    @testset "argument checks" begin
+@testset "sample" begin
+    @testset "output shape ($m)" for m in methods
         w = warmup(pentagon)
-        @test_throws ArgumentError hr_sample(Xoshiro(1), w, -1)
-        @test_throws ArgumentError hr_sample(Xoshiro(1), w, 10; burn_in = -1)
-        @test_throws ArgumentError hr_sample(Xoshiro(1), w, 10; thin = 0)
-        @test size(hr_sample(Xoshiro(1), w, 0)) == (2, 0)
+        @test size(sample(Xoshiro(1), w, m, 7)) == (2, 7)
+        @test size(sample(w, m, 1)) == (2, 1)
+        @test size(sample(pentagon, m, 3)) == (2, 3)
+        chains = sample(Xoshiro(1), w, m, MCMCSerial(), 5, 3)
+        @test chains isa Vector{Matrix{Float64}}
+        @test size.(chains) == fill((2, 5), 3)
+        @test_throws ArgumentError sample(Xoshiro(1), w, m, 10; discard_initial = -1)
     end
 
     @testset "reproducible from a seeded rng ($m)" for m in methods
         w = warmup(pentagon)
-        @test hr_sample(Xoshiro(3), w, 100; method = m) == hr_sample(Xoshiro(3), w, 100; method = m)
-        @test hr_sample(Xoshiro(3), pentagon, 100; method = m) == hr_sample(Xoshiro(3), w, 100; method = m)
-        @test size(hr_sample(w, 7; method = m)) == (2, 7)
+        X = sample(Xoshiro(3), w, m, 100)
+        @test sample(Xoshiro(3), w, m, 100) == X
+        @test sample(Xoshiro(3), pentagon, m, 100) == X
+        @test sample(Xoshiro(3), w, m, MCMCThreads(), 50, 4) ==
+            sample(Xoshiro(3), pentagon, m, MCMCSerial(), 50, 4)
+        # The first point is one step from the warmup center
+        @test X[:, 1] != w.center
+    end
+
+    @testset "discard_initial and thinning ($m)" for m in methods
+        w = warmup(pentagon)
+        long = sample(Xoshiro(5), w, m, 30)
+        @test sample(Xoshiro(5), w, m, 10; discard_initial = 5) == long[:, 6:15]
+        @test sample(Xoshiro(5), w, m, 10; thinning = 3) == long[:, 1:3:28]
     end
 
     @testset "every point is feasible ($m)" for m in methods
@@ -42,7 +56,7 @@ const methods = (HitAndRun(), ACHR())
             [0.0, 0.0, 1.0, 2.0], [5.5, 5.5, Inf, 2.0];
             A = [M zeros(3, 2)], b = f, C = [1.0 0.0 1.0 0.0], d = [6.0],
         )
-        X = hr_sample(Xoshiro(4), P, 20_000; method = m, burn_in = 100)
+        X = sample(Xoshiro(4), P, m, 20_000; discard_initial = 100)
         @test all(x -> PolytopeSamplers.isfeasible(P, x; atol = 1.0e-10), eachcol(X))
         @test all(==(2.0), X[4, :])
         @test maximum(abs.(X[1, :] .+ X[3, :] .- 6)) < 1.0e-12
@@ -53,7 +67,7 @@ const methods = (HitAndRun(), ACHR())
     @testset "uniform on the unit square ($m)" for m in methods
         w = warmup(Polytope(zeros(2), ones(2)))
         for seed in 1:5
-            X = hr_sample(Xoshiro(seed), w, 20_000; method = m, thin = 5)
+            X = sample(Xoshiro(seed), w, m, 20_000; thinning = 5)
             @test all(abs.(mean(X; dims = 2) .- 1 / 2) .< 0.01)
             @test all(abs.(var(X; dims = 2) .- 1 / 12) .< 0.005)
         end
@@ -63,7 +77,7 @@ const methods = (HitAndRun(), ACHR())
         # The marginals of the uniform distribution on the 3-simplex are Beta(1, 3)
         w = warmup(Polytope(zeros(4), ones(4); C = ones(1, 4), d = [1.0]))
         for seed in 1:5
-            X = hr_sample(Xoshiro(seed), w, 20_000; method = m, thin = 10)
+            X = sample(Xoshiro(seed), w, m, 20_000; thinning = 10)
             @test all(abs.(mean(X; dims = 2) .- 1 / 4) .< 0.01)
             @test all(abs.(var(X; dims = 2) .- 3 / 80) .< 0.004)
         end
@@ -75,22 +89,21 @@ const methods = (HitAndRun(), ACHR())
         # The coordinates have standard deviation 1.4, so the means of 20_000 nearly
         # independent points have standard error 0.01
         for seed in 1:5
-            X = hr_sample(Xoshiro(seed), w, 20_000; method = m, thin = 5)
+            X = sample(Xoshiro(seed), w, m, 20_000; thinning = 5)
             @test all(abs.(mean(X; dims = 2) .- μ) .< 0.06)
             @test all(abs.(var(X; dims = 2) ./ σ2 .- 1) .< 0.05)
         end
     end
 
     @testset "a single point" begin
-        X = hr_sample(Xoshiro(1), Polytope([0.2, 0.7], [0.2, 0.7]), 5)
+        X = sample(Xoshiro(1), Polytope([0.2, 0.7], [0.2, 0.7]), HitAndRun(), 5)
         @test all(==([0.2, 0.7]), eachcol(X))
     end
 
     @testset "steps are type stable and allocation free ($m)" for m in methods
-        c = PolytopeSamplers.Chain(m, warmup(pentagon))
+        c = PolytopeSamplers.HitAndRunState(m, warmup(pentagon))
         rng = Xoshiro(1)
         @test_opt PolytopeSamplers.step!(rng, c)
         @test isempty(check_allocs(PolytopeSamplers.step!, (typeof(rng), typeof(c))))
-        @test_opt hr_sample(rng, c.warmup, 10; method = m)
     end
 end

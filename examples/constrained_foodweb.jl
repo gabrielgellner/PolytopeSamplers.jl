@@ -17,7 +17,7 @@
 
 using FoodWebs: basal_species, generalized_cascade_network, spectral_abscissa, top_species,
     trophic_levels
-using PolytopeSamplers: ACHR, Polytope, hr_sample, warmup
+using PolytopeSamplers: ACHR, HitAndRun, MCMCThreads, Polytope, diagnostics, sample, warmup
 using Random: Xoshiro
 using Statistics: mean
 
@@ -99,11 +99,22 @@ let rng = Xoshiro(2026), S = 15
 
         w = warmup(P)
         println("feasible growth rates after $attempt draws; ", w)
-        X = hr_sample(rng, w, 10_000; method = ACHR(), thin = 10)
         signs = interaction_signs(web)
-        λ = [spectral_abscissa(community_matrix(α, links, signs, x)) for α in eachcol(X)]
-        println("stable fraction: ", mean(<(0), λ))
-        println("mean spectral abscissa: ", mean(λ))
+
+        # Four chains per method; compare effective samples per second
+        for method in (HitAndRun(), ACHR())
+            t = @elapsed chains = sample(
+                rng, w, method, MCMCThreads(), 2_000, 4; discard_initial = 1_000, thinning = 10,
+                progress = false,
+            )
+            d = diagnostics(chains)
+            println(
+                rpad(string(method), 12), " min ESS ", round(Int, d.min_ess), ", max R̂ ",
+                round(d.max_rhat; digits = 3), ", ", round(Int, d.min_ess / t), " ESS/s",
+            )
+            λ = [spectral_abscissa(community_matrix(α, links, signs, x)) for X in chains for α in eachcol(X)]
+            println("    stable fraction ", mean(<(0), λ), ", mean spectral abscissa ", mean(λ))
+        end
         break
     end
 end
