@@ -9,7 +9,7 @@ using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
 using LinearAlgebra: Diagonal, I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
-    normalize!, nullspace, pinv, svd
+    normalize!, nullspace, pinv, rank, svd
 using Random: AbstractRNG, Xoshiro, default_rng, randexp, randn!
 using MCMCDiagnosticTools: ess_rhat, mcse
 using Statistics: mean, std

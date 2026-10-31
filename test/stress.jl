@@ -65,7 +65,8 @@ function report_converged(label, d, n, t)
     return
 end
 
-# Chain states starting at `fraction` of the way from the center to warmup points
+# Chain states starting at `fraction` of the way from the center to the extreme points of
+# a warmup built with `extremes = true`
 function starts(m, w, fraction)
     return map(1:4) do j
         s = PolytopeSamplers.chain_state(m, w)
@@ -82,7 +83,7 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
     @testset "diagnostics flag chains started near the corners" begin
         # Chains start 90% of the way to four vertices of the 49-dimensional simplex. Short
         # runs must show R̂ > 1.05; any run with R̂ < 1.01 must have correct moments.
-        w = warmup(simplex(50))
+        w = warmup(simplex(50); extremes = true)
         println("Overdispersed starts on the 49-dimensional simplex")
         for m in all_methods
             reached = false
@@ -102,7 +103,7 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
     @testset "coordinate hit-and-run cannot leave a vertex" begin
         # At a vertex of the simplex no coordinate axis points into the polytope, so every
         # coordinate chord has length zero; R̂ shows the chains are stuck
-        w = warmup(simplex(20))
+        w = warmup(simplex(20); extremes = true)
         d, t = run_chains(w, CoordinateHitAndRun(), 1_000; initial_state = starts(CoordinateHitAndRun(), w, 1.0))
         println("CHRR started at vertices of the 19-dimensional simplex")
         report("CoordinateHitAndRun(), n = 1000", d, t)

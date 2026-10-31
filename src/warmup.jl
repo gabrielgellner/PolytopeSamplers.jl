@@ -1,6 +1,10 @@
-# Gᵀ and G Gᵀ for the billiard walk, filled on first use under the lock
-mutable struct ReflectionCache
-    matrices::Union{Nothing, Tuple{Matrix{Float64}, Matrix{Float64}}}
+# Values computed on first use and shared by the chains of a warmup, under the lock: Gᵀ and
+# G Gᵀ for the billiard walk, and the extreme points in `z` for ACHR when the warmup was
+# built without them
+mutable struct WarmupCache
+    reflections::Union{Nothing, Tuple{Matrix{Float64}, Matrix{Float64}}}
+    zpoints::Union{Nothing, Matrix{Float64}}
+    const optimizer::Any
     const lock::ReentrantLock
 end
 
@@ -22,7 +26,8 @@ direction in which the polytope has width and the rows of `G` have unit norm.
 - `radius`: the radius of the largest ball in `{z : G z ≤ h}`, near 1 when rounded.
 - `rounded`: whether `transform` rounds the polytope.
 
-With `warmup(P; extremes = false)`, `points` and `zpoints` have no columns.
+With `warmup(P; extremes = false)` (the default), `points` and `zpoints` have no columns;
+[`ACHR`](@ref) computes the extreme points when a chain first needs them.
 """
 struct Warmup <: AbstractModel
     polytope::Polytope
@@ -34,26 +39,44 @@ struct Warmup <: AbstractModel
     zpoints::Matrix{Float64}
     radius::Float64
     rounded::Bool
-    # Gᵀ and G Gᵀ for the billiard walk, computed on first use and shared by its chains
-    reflections::ReflectionCache
+    cache::WarmupCache
 end
 
-function Warmup(P, points, center, transform, G, h, zpoints, radius, rounded)
+function Warmup(
+        P, points, center, transform, G, h, zpoints, radius, rounded;
+        optimizer = HiGHS.Optimizer,
+    )
     return Warmup(
         P, points, center, transform, G, h, zpoints, radius, rounded,
-        ReflectionCache(nothing, ReentrantLock()),
+        WarmupCache(nothing, nothing, optimizer, ReentrantLock()),
     )
 end
 
-# Gᵀ and G Gᵀ, computed once per warmup under its lock, so that chains on separate threads
-# share one copy instead of each holding an m × m matrix
+# Gᵀ and G Gᵀ, computed once per warmup, so that chains on separate threads share one copy
+# instead of each holding an m × m matrix
 function reflection_matrices(w::Warmup)
-    cache = w.reflections
+    cache = w.cache
     return lock(cache.lock) do
-        if cache.matrices === nothing
-            cache.matrices = (Matrix(w.G'), w.G * w.G')
+        if cache.reflections === nothing
+            cache.reflections = (Matrix(w.G'), w.G * w.G')
         end
-        cache.matrices
+        cache.reflections
+    end
+end
+
+# The extreme points of each coordinate in `z`: `w.zpoints`, or, for a warmup built without
+# them, the `2n` linear programs solved once on first use. A warmup built from the largest
+# inscribed ball has no equalities beyond those of its slice, so the points lie in it.
+function extreme_zpoints(w::Warmup)
+    isempty(w.zpoints) || return w.zpoints
+    size(w.transform, 2) == 0 && return w.zpoints
+    cache = w.cache
+    return lock(cache.lock) do
+        if cache.zpoints === nothing
+            points = coordinate_extremes(w.polytope, cache.optimizer)
+            cache.zpoints = w.transform \ (points .- w.center)
+        end
+        cache.zpoints
     end
 end
 
@@ -65,22 +88,25 @@ function Base.show(io::IO, w::Warmup)
 end
 
 """
-    warmup([rng], P::Polytope; extremes = true, rounding = :ellipsoid,
+    warmup([rng], P::Polytope; extremes = false, rounding = :ellipsoid,
            optimizer = HiGHS.Optimizer, atol = 1e-6)
 
 Prepare `P` for sampling and return a [`Warmup`](@ref) to [`sample`](@ref) from.
+
+With `extremes = false` (the default), solve one linear program for the largest ball inside
+`P` in the slice of `C * x .== d` and the fixed coordinates, as in multiphase Monte Carlo
+sampling ([`mmcs`](@ref)). A polytope with room for a ball of positive radius has no other
+equalities. If the ball has radius below `atol`, `P` has equalities beyond the explicit
+ones, and `warmup` falls back to `extremes = true`.
 
 With `extremes = true`, solve `2n` linear programs, minimizing and maximizing each of the
 `n` coordinates. The extreme points locate the constraints that hold with equality over all
 of `P`: a coordinate whose range is within `atol` of zero, or an inequality whose slack is
 within `atol` of zero at every extreme point. Chains move only in the directions that keep
-these equalities and `C * x .== d`. [`ACHR`](@ref) needs the extreme points.
-
-With `extremes = false`, solve one linear program for the largest ball inside `P` in the
-slice of `C * x .== d` and the fixed coordinates, as in multiphase Monte Carlo sampling
-([`mmcs`](@ref)). This costs far less for large `n`: the `2n` programs took 44 s for
-`n = 200` with 1000 constraints. If that ball has radius below `atol`, `P` has equalities
-beyond the explicit ones, and `warmup` falls back to `extremes = true`.
+these equalities and `C * x .== d`. The `2n` programs cost far more for large `n`: 58 s for
+`n = 200` with 1000 constraints, against 1.3 s for the whole warmup with `extremes =
+false`. [`ACHR`](@ref) uses the extreme points, and solves the `2n` programs on first use
+when the warmup was built without them.
 
 `rounding` changes coordinates so that the polytope is close to round, which makes every
 sampler take long steps in thin directions:
@@ -92,13 +118,13 @@ sampler take long steps in thin directions:
   repeatedly, as in multiphase Monte Carlo sampling. Uses `rng`.
 - `:none` (or `false`).
 
-Throws an `ArgumentError` when `P` is empty or unbounded (with `extremes = false`, an
-unbounded `P` may instead raise the error while sampling). `optimizer` is any JuMP
+Throws an `ArgumentError` when `P` is empty or unbounded; with `extremes = false` one more
+linear program checks boundedness. `optimizer` is any JuMP
 optimizer for linear programs; each call builds its own model, so separate tasks may call
 `warmup` at the same time.
 """
 function warmup(
-        rng::AbstractRNG, P::Polytope; extremes::Bool = true,
+        rng::AbstractRNG, P::Polytope; extremes::Bool = false,
         rounding::Union{Bool, Symbol} = :ellipsoid, optimizer = HiGHS.Optimizer,
         atol::Real = 1.0e-6,
     )
@@ -122,14 +148,13 @@ function warmup(
     end
     zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
     radius = isempty(T) ? 0.0 : last(chebyshev_center(G, h, optimizer))
-    return Warmup(P, points, center, T, G, h, zpoints, radius, rounding !== :none)
+    return Warmup(P, points, center, T, G, h, zpoints, radius, rounding !== :none; optimizer)
 end
 
 warmup(P::Polytope; kwargs...) = warmup(default_rng(), P; kwargs...)
 
-# The extreme points of each coordinate, a center on the equalities, and a basis of the
-# directions in which the polytope has width
-function extreme_slice(P::Polytope, optimizer, atol)
+# The distinct extreme points of each coordinate, one per column, from `2n` linear programs
+function coordinate_extremes(P::Polytope, optimizer)
     model, x = lp_model(P, optimizer)
     optimize!(model)
     is_solved_and_feasible(model) || throw(ArgumentError("the polytope is empty"))
@@ -144,8 +169,13 @@ function extreme_slice(P::Polytope, optimizer, atol)
         end
         points[:, 2(i - 1) + k] = value.(x)
     end
-    points = unique(points; dims = 2)
+    return unique(points; dims = 2)
+end
 
+# The extreme points of each coordinate, a center on the equalities, and a basis of the
+# directions in which the polytope has width
+function extreme_slice(P::Polytope, optimizer, atol)
+    points = coordinate_extremes(P, optimizer)
     Ceq, deq = active_equalities(P, points, atol)
     center = vec(mean(points; dims = 2))
     # Move the center onto the equalities, which the linear programs satisfy only to the
@@ -179,7 +209,24 @@ function chebyshev_slice(P::Polytope, optimizer, atol)
     end
     c, r = chebyshev_center(G, h, optimizer)
     r > atol || return nothing
+    isbounded(G, optimizer) || throw(ArgumentError("the polytope is unbounded"))
     return shift!(x0, T, G, h, c)
+end
+
+# Whether `{z : G z ≤ h}` (nonempty) is bounded: no direction `d ≠ 0` has `G d ≤ 0`. That
+# holds exactly when `G` has full column rank, ruling out `G d = 0`, and some `y > 0` has
+# `Gᵀ y = 0`, ruling out `G d ≤ 0` with `G d ≠ 0` (Stiemke's theorem of the alternative);
+# the second is a linear feasibility problem in `y ≥ 1`
+function isbounded(G, optimizer)
+    m, k = size(G)
+    m == 0 && return k == 0
+    rank(G) == k || return false
+    model = Model(optimizer)
+    set_silent(model)
+    y = @variable(model, [1:m], lower_bound = 1)
+    @constraint(model, G' * y .== 0)
+    optimize!(model)
+    return is_solved_and_feasible(model)
 end
 
 # The bounds and inequalities of `P` as `G z ≤ h` for `x = center + T z`, with unit-norm rows.

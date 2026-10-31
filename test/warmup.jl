@@ -6,11 +6,18 @@ using PolytopeSamplers: PolytopeSamplers
     @testset "errors" begin
         @test_throws ArgumentError warmup(Polytope([0.0, 0.0], [1.0, 1.0]; A = [-1.0 -1.0], b = [-3.0]))
         @test_throws ArgumentError warmup(Polytope([0.0, 0.0], [1.0, Inf]))
+        @test_throws ArgumentError warmup(Polytope([0.0, 0.0], [1.0, Inf]); extremes = true)
+        # Unbounded with a bounded inscribed ball: the strip 0 ≤ x1 - x2 ≤ 1
+        @test_throws ArgumentError warmup(Polytope(fill(-Inf, 2), fill(Inf, 2); A = [1.0 -1.0; -1.0 1.0], b = [1.0, 0.0]))
+        @test PolytopeSamplers.isbounded([1.0 0.0; -1.0 0.0; 0.0 1.0; 0.0 -1.0], PolytopeSamplers.HiGHS.Optimizer)
+        @test !PolytopeSamplers.isbounded([1.0 0.0; -1.0 0.0; 0.0 1.0], PolytopeSamplers.HiGHS.Optimizer)
+        # Bounded in its normals' cone but not in their span: G d = 0 for d = (1, 1)
+        @test !PolytopeSamplers.isbounded([1.0 -1.0; -1.0 1.0], PolytopeSamplers.HiGHS.Optimizer)
     end
 
     @testset "full-dimensional triangle" begin
         P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])
-        w = warmup(P; rounding = false)
+        w = warmup(P; extremes = true, rounding = false)
         @test w isa Warmup
         @test !w.rounded
         # The three vertices, each extreme in some coordinate

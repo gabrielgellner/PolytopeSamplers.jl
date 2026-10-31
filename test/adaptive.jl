@@ -1,5 +1,5 @@
 using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun,
-    Polytope, mmcs, sample, sample_until_converged, warmup
+    MCMCSerial, Polytope, mmcs, sample, sample_until_converged, warmup
 using LinearAlgebra: svdvals
 using Random: Xoshiro
 
@@ -48,7 +48,23 @@ simplex20 = Polytope(zeros(20), ones(20); C = ones(1, 20), d = [1.0])
         @test_throws ArgumentError warmup(Polytope(zeros(2), ones(2); A = [-1.0 -1.0], b = [-3.0]); extremes = false)
         @test_throws ArgumentError warmup(Polytope(zeros(2), fill(Inf, 2)); extremes = false)
         @test_throws ArgumentError warmup(skinny; rounding = :cube)
-        @test_throws ArgumentError sample(Xoshiro(1), skinny, ACHR(), 10; extremes = false)
+    end
+
+    @testset "ACHR computes extreme points on first use" begin
+        w = warmup(skinny)
+        @test size(w.points, 2) == 0
+        @test w.cache.zpoints === nothing
+        chains = sample(Xoshiro(1), w, ACHR(), MCMCSerial(), 500, 3)
+        # The 20 coordinate programs reach 11 distinct vertices of the box
+        @test size(w.cache.zpoints, 2) == size(warmup(skinny; extremes = true).points, 2)
+        # The chains share one set of extreme points, in the slice of the warmup
+        zp = w.cache.zpoints
+        @test PolytopeSamplers.extreme_zpoints(w) === zp
+        @test all(p -> p in skinny, eachcol(w.transform * zp .+ w.center))
+        @test all(x -> x in skinny, eachcol(reduce(hcat, chains)))
+        # Same chains as from a warmup that solved the extreme points up front
+        we = warmup(skinny; extremes = true)
+        @test sort(collect(eachcol(we.points))) ≈ sort(collect(eachcol(w.transform * zp .+ w.center)))
     end
 
     @testset "rounding from samples" begin

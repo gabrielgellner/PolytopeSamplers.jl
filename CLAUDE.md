@@ -10,11 +10,12 @@ use is sampling the interaction strengths of food webs consistent with an equili
 
 - `src/polytope.jl`: `Polytope` (`lower .<= x .<= upper`, `A * x .<= b`, `C * x .== d`),
   `isfeasible`, `isempty`, and the JuMP model of a polytope.
-- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs (or, with
-  `extremes = false`, one Chebyshev-center program), finds the equalities that hold over the
-  polytope (explicit, fixed coordinates, tight inequalities),
+- `src/warmup.jl`: `warmup`, which by default solves one Chebyshev-center program and one
+  boundedness program (or, with `extremes = true`, the `2n` coordinate programs), finds the
+  equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities),
   and writes the polytope as `x = center + transform * z`, `G z ≤ h` with unit-norm rows.
-  Samplers move in `z`.
+  Samplers move in `z`. `WarmupCache` holds values computed on first use and shared by
+  chains under a lock: `G Gᵀ` for the billiard walk and the extreme points for ACHR.
 - `src/rounding.jl`: the Chebyshev center, the maximum-volume inscribed ellipsoid (adapted
   from volesti and PolyRound), the ellipsoid rounding loop, and rounding from billiard-walk
   samples (the MMCS phases, adapted from volesti).

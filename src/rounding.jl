@@ -219,7 +219,7 @@ function round_by_samples!(
     for _ in 1:maxiter
         c, r = chebyshev_center(G, h, optimizer)
         shift!(center, T, G, h, c)
-        w = Warmup(P, zeros(length(center), 0), center, T, G, h, zeros(k, 0), r, false)
+        w = Warmup(P, zeros(length(center), 0), center, T, G, h, zeros(k, 0), r, false; optimizer)
         state = chain_state(BilliardWalk(trajectory_length = 6 * sqrt(k) * r), w)
         for _ in 1:k
             step!(rng, state)

@@ -33,7 +33,9 @@ struct HitAndRun <: AbstractHitAndRun end
     ACHR()
 
 Artificial centering hit-and-run (Kaufman & Smith 1998), as in the COBRA Toolbox: each
-direction runs from the running mean of the chain to a random warmup point. Directions
+direction runs from the running mean of the chain to a random extreme point of a
+coordinate. A warmup built with `extremes = false` (the default) solves the `2n` linear
+programs for these points when the first ACHR chain starts, and its chains share them. Directions
 follow the shape of the polytope, so long thin polytopes mix faster than with
 [`HitAndRun`](@ref) when the warmup is not rounded. The direction depends on the history
 through the mean, so the chain is only approximately Markov; its distribution approaches
@@ -105,6 +107,7 @@ mutable struct HitAndRunState{M <: AbstractHitAndRun}
     const slack::Vector{Float64} # h - G z
     const Gu::Vector{Float64}
     const center::Vector{Float64} # running mean of z, for ACHR
+    const zpoints::Matrix{Float64} # extreme points in z, for ACHR
     n_seen::Int # points in the running mean
     steps::Int # steps taken, for refreshing the slacks
     next_coordinate::Int # for the cyclic scan
@@ -115,13 +118,11 @@ chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w)
 function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
     k = size(w.transform, 2)
     m = length(w.h)
-    if method isa ACHR && k > 0 && isempty(w.zpoints)
-        throw(ArgumentError("ACHR needs the extreme points of warmup(P; extremes = true)"))
-    end
-    center = isempty(w.zpoints) ? zeros(k) : vec(mean(w.zpoints; dims = 2))
+    zpoints = method isa ACHR ? extreme_zpoints(w) : w.zpoints
+    center = isempty(zpoints) ? zeros(k) : vec(mean(zpoints; dims = 2))
     return HitAndRunState(
-        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), center,
-        size(w.points, 2), 0, 1,
+        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), center, zpoints,
+        size(zpoints, 2), 0, 1,
     )
 end
 
@@ -135,7 +136,7 @@ end
 
 function direction!(rng::AbstractRNG, c::HitAndRunState{ACHR})
     isempty(c.u) && return false
-    zp = c.warmup.zpoints
+    zp = c.zpoints
     j = rand(rng, axes(zp, 2))
     for i in eachindex(c.u)
         c.u[i] = zp[i, j] - c.center[i]
@@ -275,7 +276,7 @@ end
 """
     sample([rng], w::Warmup, method, n; discard_initial = 0, thinning = 1, progress = true)
     sample([rng], w::Warmup, method, MCMCThreads(), n, nchains; kwargs...)
-    sample([rng], P::Polytope, method, args...; extremes = true, rounding = :ellipsoid,
+    sample([rng], P::Polytope, method, args...; extremes = false, rounding = :ellipsoid,
            optimizer = HiGHS.Optimizer, kwargs...)
 
 Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
@@ -302,7 +303,7 @@ diagnostics(chains)
 """
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::PolytopeSampler, n::Integer;
-        extremes::Bool = true, rounding::Union{Bool, Symbol} = :ellipsoid,
+        extremes::Bool = false, rounding::Union{Bool, Symbol} = :ellipsoid,
         optimizer = HiGHS.Optimizer, kwargs...,
     )
     return sample(rng, warmup(rng, P; extremes, rounding, optimizer), method, n; kwargs...)
@@ -311,7 +312,7 @@ end
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::PolytopeSampler,
         ensemble::AbstractMCMCEnsemble, n::Integer, nchains::Integer;
-        extremes::Bool = true, rounding::Union{Bool, Symbol} = :ellipsoid,
+        extremes::Bool = false, rounding::Union{Bool, Symbol} = :ellipsoid,
         optimizer = HiGHS.Optimizer, kwargs...,
     )
     w = warmup(rng, P; extremes, rounding, optimizer)
