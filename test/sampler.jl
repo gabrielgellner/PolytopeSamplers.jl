@@ -1,4 +1,4 @@
-using PolytopeSamplers: PolytopeSamplers, ACHR, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
+using PolytopeSamplers: PolytopeSamplers, ACHR, CoordinateHitAndRun, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
 using Random: Xoshiro
@@ -17,7 +17,7 @@ function pentagon_moments(rng, n)
     return vec(mean(Y; dims = 2)), vec(var(Y; dims = 2))
 end
 
-const methods = (HitAndRun(), ACHR())
+const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun())
 
 @testset "sample" begin
     @testset "output shape ($m)" for m in methods
@@ -95,9 +95,26 @@ const methods = (HitAndRun(), ACHR())
         end
     end
 
-    @testset "a single point" begin
-        X = sample(Xoshiro(1), Polytope([0.2, 0.7], [0.2, 0.7]), HitAndRun(), 5)
+    @testset "a single point ($m)" for m in methods
+        X = sample(Xoshiro(1), Polytope([0.2, 0.7], [0.2, 0.7]), m, 5)
         @test all(==([0.2, 0.7]), eachcol(X))
+    end
+
+    @testset "unrounded warmup ($m)" for m in methods
+        w = warmup(pentagon; rounding = false)
+        X = sample(Xoshiro(1), w, m, 2000)
+        @test all(x -> x in pentagon, eachcol(X))
+    end
+
+    @testset "CoordinateHitAndRun moves" begin
+        @test_throws ArgumentError CoordinateHitAndRun(moves = 0)
+        @test sprint(show, CoordinateHitAndRun()) == "CoordinateHitAndRun()"
+        @test sprint(show, CoordinateHitAndRun(moves = 3)) == "CoordinateHitAndRun(moves = 3)"
+        w = warmup(pentagon)
+        # Steps of one move, keeping every second, follow steps of two moves
+        X2 = sample(Xoshiro(2), w, CoordinateHitAndRun(moves = 2), 2)
+        X1 = sample(Xoshiro(2), w, CoordinateHitAndRun(moves = 1), 2; discard_initial = 1, thinning = 2)
+        @test X2 ≈ X1
     end
 
     @testset "steps are type stable and allocation free ($m)" for m in methods

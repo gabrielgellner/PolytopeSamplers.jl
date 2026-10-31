@@ -1,31 +1,48 @@
 """
     Warmup
 
-The starting state of a hit-and-run chain on a polytope, built by [`warmup`](@ref).
+A polytope in the coordinates that samplers move in, built by [`warmup`](@ref). Points are
+`x = center + transform * z` for `z` in `{z : G z ≤ h}`, where `z` has one coordinate per
+direction in which the polytope has width and the rows of `G` have unit norm.
 
 - `polytope`: the [`Polytope`](@ref) sampled.
 - `points`: the distinct extreme points of each coordinate, one per column.
-- `center`: the mean of `points`, where chains start.
-- `basis`: orthonormal columns spanning the directions in which the polytope has width.
+- `center`: where chains start (`z = 0`); the center of the last inscribed ellipsoid when
+  rounded, the mean of `points` otherwise.
+- `transform`: the `n × k` matrix taking `z` to `x - center`. Its columns are orthonormal
+  when not rounded.
+- `G`, `h`: the constraints of `P` in `z`, leaving out those that are constant on the slice.
+- `zpoints`: `points` in `z` coordinates.
+- `rounded`: whether `transform` rounds the polytope.
 """
 struct Warmup <: AbstractModel
     polytope::Polytope
     points::Matrix{Float64}
     center::Vector{Float64}
-    basis::Matrix{Float64}
+    transform::Matrix{Float64}
+    G::Matrix{Float64}
+    h::Vector{Float64}
+    zpoints::Matrix{Float64}
+    rounded::Bool
 end
 
 function Base.show(io::IO, w::Warmup)
-    print(io, "Warmup with ", size(w.points, 2), " points on a ", size(w.basis, 2))
+    print(io, "Warmup with ", size(w.points, 2), " points on a ", size(w.transform, 2))
     print(io, "-dimensional slice of a ", nvars(w.polytope), "-variable polytope")
+    w.rounded && print(io, ", rounded")
     return
 end
 
 """
-    warmup(P::Polytope; optimizer = HiGHS.Optimizer, atol = 1e-6)
+    warmup(P::Polytope; rounding = true, optimizer = HiGHS.Optimizer, atol = 1e-6)
 
 Solve `2n` linear programs, minimizing and maximizing each of the `n` coordinates over `P`,
 and return a [`Warmup`](@ref) to [`sample`](@ref) from.
+
+With `rounding = true`, change coordinates so that the polytope is close to round: the
+maximum-volume inscribed ellipsoid is mapped to the unit ball, repeatedly, until it is
+nearly a ball. Rounding costs a few dense factorizations of size the number of constraints,
+and makes every sampler take long steps in thin directions.
 
 The extreme points also locate the constraints that hold with equality over all of `P`: a
 coordinate whose range is within `atol` of zero, or an inequality whose slack is within
@@ -36,7 +53,7 @@ Throws an `ArgumentError` when `P` is empty or unbounded. `optimizer` is any JuM
 for linear programs; each call builds its own model, so separate tasks may call `warmup`
 at the same time.
 """
-function warmup(P::Polytope; optimizer = HiGHS.Optimizer, atol::Real = 1.0e-6)
+function warmup(P::Polytope; rounding::Bool = true, optimizer = HiGHS.Optimizer, atol::Real = 1.0e-6)
     model, x = lp_model(P, optimizer)
     optimize!(model)
     is_solved_and_feasible(model) || throw(ArgumentError("the polytope is empty"))
@@ -60,8 +77,41 @@ function warmup(P::Polytope; optimizer = HiGHS.Optimizer, atol::Real = 1.0e-6)
     if !isempty(deq)
         center .-= pinv(Ceq) * (Ceq * center .- deq)
     end
-    basis = direction_basis(Ceq, points, center, atol)
-    return Warmup(P, points, center, basis)
+    T = direction_basis(Ceq, points, center, atol)
+    G, h = reduced_constraints(P, center, T)
+    if rounding
+        round_polytope!(center, T, G, h; optimizer)
+    end
+    zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
+    return Warmup(P, points, center, T, G, h, zpoints, rounding)
+end
+
+# The bounds and inequalities of `P` as `G z ≤ h` for `x = center + T z`, with unit-norm rows.
+# Rows that are zero on the slice (fixed coordinates, inequalities that hold with equality)
+# are left out, and slacks are clamped at zero against rounding error in `center`.
+function reduced_constraints(P::Polytope, center, T)
+    k = size(T, 2)
+    rows = Vector{Float64}[]
+    rhs = Float64[]
+    function add!(g, s, scale)
+        r = norm(g)
+        if r > ROW_TOL * scale
+            push!(rows, g ./ r)
+            push!(rhs, max(s, 0.0) / r)
+        end
+        return
+    end
+    for i in 1:nvars(P)
+        g = T[i, :]
+        isfinite(P.upper[i]) && add!(g, P.upper[i] - center[i], 1.0)
+        isfinite(P.lower[i]) && add!(-g, center[i] - P.lower[i], 1.0)
+    end
+    for i in eachindex(P.b)
+        a = P.A[i, :]
+        add!(T' * a, P.b[i] - dot(a, center), norm(a))
+    end
+    G = isempty(rows) ? zeros(0, k) : permutedims(reduce(hcat, rows))
+    return G, rhs
 end
 
 # The equalities `C * x .== d` with the fixed coordinates and the inequalities tight at every
@@ -88,6 +138,10 @@ function active_equalities(P::Polytope, points, atol)
     end
     return reduce(vcat, rows), reduce(vcat, rhs)
 end
+
+# A constraint row whose norm on the slice is below this fraction of its norm in `x` is
+# constant on the slice
+const ROW_TOL = 1.0e-9
 
 # Orthonormal directions that keep `Ceq * x` fixed and along which the extreme points spread.
 # The second condition catches equalities that hold over the polytope but are not a single

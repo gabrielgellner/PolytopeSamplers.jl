@@ -17,7 +17,8 @@
 
 using FoodWebs: basal_species, generalized_cascade_network, spectral_abscissa, top_species,
     trophic_levels
-using PolytopeSamplers: ACHR, HitAndRun, MCMCThreads, Polytope, diagnostics, sample, warmup
+using PolytopeSamplers: ACHR, CoordinateHitAndRun, HitAndRun, MCMCThreads, Polytope, diagnostics,
+    sample, warmup
 using Random: Xoshiro
 using Statistics: mean
 
@@ -97,23 +98,32 @@ let rng = Xoshiro(2026), S = 15
         P, links = foodweb_polytope(web, x, r)
         isempty(P) && continue
 
-        w = warmup(P)
-        println("feasible growth rates after $attempt draws; ", w)
         signs = interaction_signs(web)
+        unrounded = warmup(P; rounding = false)
+        t_round = @elapsed rounded = warmup(P)
+        println("feasible growth rates after $attempt draws; ", rounded)
+        println("rounding took ", round(t_round; digits = 2), " s")
 
-        # Four chains per method; compare effective samples per second
-        for method in (HitAndRun(), ACHR())
+        # Four chains per sampler; compare effective samples per second
+        runs = [
+            ("HitAndRun, unrounded", unrounded, HitAndRun()),
+            ("ACHR, unrounded", unrounded, ACHR()),
+            ("HitAndRun", rounded, HitAndRun()),
+            ("ACHR", rounded, ACHR()),
+            ("CoordinateHitAndRun", rounded, CoordinateHitAndRun()),
+        ]
+        for (name, w, method) in runs
             t = @elapsed chains = sample(
                 rng, w, method, MCMCThreads(), 2_000, 4; discard_initial = 1_000, thinning = 10,
                 progress = false,
             )
             d = diagnostics(chains)
-            println(
-                rpad(string(method), 12), " min ESS ", round(Int, d.min_ess), ", max R̂ ",
-                round(d.max_rhat; digits = 3), ", ", round(Int, d.min_ess / t), " ESS/s",
-            )
             λ = [spectral_abscissa(community_matrix(α, links, signs, x)) for X in chains for α in eachcol(X)]
-            println("    stable fraction ", mean(<(0), λ), ", mean spectral abscissa ", mean(λ))
+            println(
+                rpad(name, 22), " min ESS ", lpad(round(Int, d.min_ess), 5), ", max R̂ ",
+                rpad(round(d.max_rhat; digits = 3), 5), ", ", lpad(round(Int, d.min_ess / t), 6),
+                " ESS/s, stable fraction ", round(mean(<(0), λ); digits = 3),
+            )
         end
         break
     end

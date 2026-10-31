@@ -10,13 +10,21 @@ use is sampling the interaction strengths of food webs consistent with an equili
 
 - `src/polytope.jl`: `Polytope` (`lower .<= x .<= upper`, `A * x .<= b`, `C * x .== d`),
   `isfeasible`, `isempty`, and the JuMP model of a polytope.
-- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs and finds the
-  equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities)
-  and an orthonormal basis of the directions that keep them.
-- `src/sampler.jl`: `HitAndRun`, `ACHR`, the allocation-free step and the AbstractMCMC
+- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs, finds the
+  equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities),
+  and writes the polytope as `x = center + transform * z`, `G z ≤ h` with unit-norm rows.
+  Samplers move in `z`.
+- `src/rounding.jl`: the Chebyshev center, the maximum-volume inscribed ellipsoid (adapted
+  from volesti and PolyRound) and the rounding loop.
+- `src/sampler.jl`: `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack updates adapted from
+  hops), the allocation-free steps and the AbstractMCMC
   interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`
   are `AbstractMCMC.AbstractModel`s.
-- `src/diagnostics.jl`: `diagnostics`, ESS and R̂ per coordinate via MCMCDiagnosticTools.
+- `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
+  Carlo standard errors per coordinate via MCMCDiagnosticTools.
+- `test/correctness.jl`: checks adapted from the test suites of volesti, hopsy, hops and
+  PolyRound (cube, skinny cube, simplex, vertex starts, Chebyshev centers). Add the checks
+  of a reference implementation here when porting a new method.
 - `test/`: one test file per source file. Workspace project with the test-only dependencies.
 - `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub). The food
   web polytope will move to its own package depending on this one and FoodWebs.jl.
@@ -48,7 +56,9 @@ project, file, commit and license, and keep the original copyright line.
 
 Test sampling against exact moments of the uniform distribution (unit square, simplex) or
 a large rejection sample (the pentagon of the original test), under several seeds, with
-tolerances of about five standard errors. Check a new stochastic test under 50 or more
+tolerances of about five standard errors. Prefer the Monte Carlo standard errors from
+`diagnostics` over fixed tolerances: they test the error bars users report too. Every new
+sampler joins the `methods` tuples in `test/sampler.jl` and `test/correctness.jl`. Check a new stochastic test under 50 or more
 shifted seeds before trusting it.
 
 ## Commands

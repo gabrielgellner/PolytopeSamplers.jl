@@ -7,20 +7,22 @@ using JuMP: @constraint, @objective, @variable, INFEASIBLE, INFEASIBLE_OR_UNBOUN
     MAX_SENSE, MIN_SENSE, Model,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
-using LinearAlgebra: I, mul!, norm, normalize!, nullspace, pinv, svd
+using LinearAlgebra: I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
+    normalize!, nullspace, pinv, svd
 using Random: AbstractRNG, randn!
-using MCMCDiagnosticTools: ess_rhat
-using Statistics: mean
+using MCMCDiagnosticTools: ess_rhat, mcse
+using Statistics: mean, std
 
 include("polytope.jl")
 export Polytope, isfeasible
 
+include("rounding.jl")
 include("warmup.jl")
 export warmup
 public Warmup
 
 include("sampler.jl")
-export ACHR, HitAndRun
+export ACHR, CoordinateHitAndRun, HitAndRun
 export MCMCDistributed, MCMCSerial, MCMCThreads, sample
 public AbstractHitAndRun
 

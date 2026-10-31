@@ -2,16 +2,21 @@
     AbstractHitAndRun
 
 Supertype of the hit-and-run methods, which differ in how they choose a direction:
-[`HitAndRun`](@ref) and [`ACHR`](@ref).
+[`HitAndRun`](@ref), [`ACHR`](@ref) and [`CoordinateHitAndRun`](@ref). All of them move in
+the coordinates of a [`Warmup`](@ref), which are rounded by default.
 """
 abstract type AbstractHitAndRun <: AbstractSampler end
 
 """
     HitAndRun()
 
-Hit-and-run with directions drawn uniformly from the unit sphere in the span of the
-polytope (Smith 1984). The chain is Markov and its stationary distribution is uniform on
-the polytope.
+Hit-and-run with directions drawn uniformly from the unit sphere in the coordinates of the
+warmup (Smith 1984). The chain is Markov and its stationary distribution is uniform on the
+polytope. Each step costs `O(mk)` for `m` constraints in `k` dimensions.
+
+Smith, R. L. (1984). Efficient Monte Carlo procedures for generating points uniformly
+distributed over bounded regions. Operations Research 32, 1296–1308.
+<https://doi.org/10.1287/opre.32.6.1296>
 """
 struct HitAndRun <: AbstractHitAndRun end
 
@@ -21,60 +26,85 @@ struct HitAndRun <: AbstractHitAndRun end
 Artificial centering hit-and-run (Kaufman & Smith 1998), as in the COBRA Toolbox: each
 direction runs from the running mean of the chain to a random warmup point. Directions
 follow the shape of the polytope, so long thin polytopes mix faster than with
-[`HitAndRun`](@ref). The direction depends on the history through the mean, so the chain
-is only approximately Markov; its distribution approaches uniform as the mean settles.
+[`HitAndRun`](@ref) when the warmup is not rounded. The direction depends on the history
+through the mean, so the chain is only approximately Markov; its distribution approaches
+uniform as the mean settles.
 
 Kaufman, D. E. & Smith, R. L. (1998). Direction choice for accelerated convergence in
 hit-and-run sampling. Operations Research 46, 84–95. <https://doi.org/10.1287/opre.46.1.84>
 """
 struct ACHR <: AbstractHitAndRun end
 
+"""
+    CoordinateHitAndRun(; moves = nothing)
+
+Coordinate hit-and-run: each move resamples one coordinate of the warmup, chosen at
+random, uniformly on its chord. On a rounded warmup this is CHRR (Haraldsdóttir et al.
+2017), the default sampler of the COBRA Toolbox. A move costs `O(m)` for `m` constraints,
+as the slacks are updated in place; each step of the chain makes `moves` moves (default:
+the dimension `k` of the warmup), so a step costs about as much as one of
+[`HitAndRun`](@ref). The chain is Markov and reversible, with the uniform distribution as
+its stationary distribution.
+
+Haraldsdóttir, H. S., Cousins, B., Thiele, I., Fleming, R. M. T. & Vempala, S. (2017).
+CHRR: coordinate hit-and-run with rounding for uniform sampling of constraint-based models.
+Bioinformatics 33, 1741–1743. <https://doi.org/10.1093/bioinformatics/btx052>
+"""
+Base.@kwdef struct CoordinateHitAndRun <: AbstractHitAndRun
+    moves::Union{Nothing, Int} = nothing
+    function CoordinateHitAndRun(moves)
+        moves === nothing || moves >= 1 || throw(ArgumentError("moves must be positive, got $moves"))
+        return new(moves)
+    end
+end
+
+function Base.show(io::IO, m::CoordinateHitAndRun)
+    print(io, "CoordinateHitAndRun(", m.moves === nothing ? "" : "moves = $(m.moves)", ")")
+    return
+end
+
 # Coefficients below this are treated as zero: a direction component this small moves a
-# fixed coordinate or an equality-tight inequality by rounding error only.
+# constraint by rounding error only.
 const ZERO_TOL = 1.0e-12
 
-# The state of one chain, with buffers so that a step does not allocate
+# The state of one chain, in the coordinates `z` of the warmup, with buffers so that a step
+# does not allocate
 mutable struct HitAndRunState{M <: AbstractHitAndRun}
     const method::M
     const warmup::Warmup
-    const x::Vector{Float64}
+    const z::Vector{Float64}
+    const x::Vector{Float64} # center + transform * z
     const u::Vector{Float64} # direction
-    const z::Vector{Float64} # direction in basis coordinates
-    const Ax::Vector{Float64}
-    const Au::Vector{Float64}
-    const center::Vector{Float64} # running mean, for ACHR
+    const slack::Vector{Float64} # h - G z
+    const Gu::Vector{Float64}
+    const center::Vector{Float64} # running mean of z, for ACHR
     n_seen::Int # points in the running mean
 end
 
 function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
-    n, k = size(w.basis)
-    m = length(w.polytope.b)
+    k = size(w.transform, 2)
+    m = length(w.h)
     return HitAndRunState(
-        method, w, copy(w.center), zeros(n), zeros(k), zeros(m), zeros(m), copy(w.center),
-        size(w.points, 2),
+        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m),
+        vec(mean(w.zpoints; dims = 2)), size(w.points, 2),
     )
 end
 
 # Set `c.u` to a unit direction; return false when there is none, as for a single point
 function direction!(rng::AbstractRNG, c::HitAndRunState{HitAndRun})
-    isempty(c.z) && return false
-    randn!(rng, c.z)
-    mul!(c.u, c.warmup.basis, c.z)
+    isempty(c.u) && return false
+    randn!(rng, c.u)
     normalize!(c.u)
     return true
 end
 
 function direction!(rng::AbstractRNG, c::HitAndRunState{ACHR})
-    B = c.warmup.basis
-    isempty(c.z) && return false
-    j = rand(rng, axes(c.warmup.points, 2))
+    isempty(c.u) && return false
+    zp = c.warmup.zpoints
+    j = rand(rng, axes(zp, 2))
     for i in eachindex(c.u)
-        c.u[i] = c.warmup.points[i, j] - c.center[i]
+        c.u[i] = zp[i, j] - c.center[i]
     end
-    # Project onto the basis so that rounding in the running mean does not accumulate
-    # in directions that leave the polytope
-    mul!(c.z, B', c.u)
-    mul!(c.u, B, c.z)
     r = norm(c.u)
     r > ZERO_TOL || return false
     c.u ./= r
@@ -91,39 +121,75 @@ end
     return tmin, tmax
 end
 
-# The interval of `t` with `x + t * u` in the polytope. Slacks are clamped at zero so that a
-# point that rounding has put just outside a constraint still gets an interval holding zero.
-function chord(c::HitAndRunState)
-    P = c.warmup.polytope
-    x, u = c.x, c.u
+# The interval of `t` with `G (z + t g) ≤ h`, given the slacks `h - G z` and the rates
+# `g = G u`. Slacks are clamped at zero so that a point that rounding has put just outside a
+# constraint still gets an interval holding zero.
+function chord(slack, g)
     tmin, tmax = -Inf, Inf
-    for i in eachindex(x)
-        tmin, tmax = narrow(tmin, tmax, u[i], max(P.upper[i] - x[i], 0.0))
-        tmin, tmax = narrow(tmin, tmax, -u[i], max(x[i] - P.lower[i], 0.0))
+    for i in eachindex(slack, g)
+        tmin, tmax = narrow(tmin, tmax, g[i], max(slack[i], 0.0))
     end
-    mul!(c.Ax, P.A, x)
-    mul!(c.Au, P.A, u)
-    for i in eachindex(c.Ax)
-        tmin, tmax = narrow(tmin, tmax, c.Au[i], max(P.b[i] - c.Ax[i], 0.0))
-    end
+    isfinite(tmin) && isfinite(tmax) ||
+        throw(ArgumentError("the polytope is unbounded along a sampled direction"))
     return tmin, tmax
 end
 
-# One hit-and-run step: move `c.x` to a uniform point on the chord through it along a new
-# direction, and update the running mean
+uniform(rng, tmin, tmax) = tmin + (tmax - tmin) * rand(rng)
+
+# One step: move `c.z` along a new direction to a uniform point on the chord, update the
+# running mean and `c.x`
 function step!(rng::AbstractRNG, c::HitAndRunState)
+    w = c.warmup
     if direction!(rng, c)
-        tmin, tmax = chord(c)
-        isfinite(tmin) && isfinite(tmax) ||
-            throw(ArgumentError("the polytope is unbounded along a sampled direction"))
-        t = tmin + (tmax - tmin) * rand(rng)
-        for i in eachindex(c.x)
-            c.x[i] += t * c.u[i]
+        update_slack!(c)
+        mul!(c.Gu, w.G, c.u)
+        t = uniform(rng, chord(c.slack, c.Gu)...)
+        for i in eachindex(c.z)
+            c.z[i] += t * c.u[i]
         end
+    end
+    return finish_step!(c)
+end
+
+# Adapted from hops, include/hops/MarkovChain/Proposal/CoordinateHitAndRunProposal.hpp
+# (commit b62592e, MIT; Copyright (c) 2020 Johann Fredrik Jadebeck, Axel Theorell, Samuel
+# Leweke, Katharina Nöh): the slacks are updated after each move instead of recomputed.
+# They are recomputed once per step so that rounding error does not accumulate.
+function step!(rng::AbstractRNG, c::HitAndRunState{CoordinateHitAndRun})
+    w = c.warmup
+    k = length(c.z)
+    if k > 0
+        update_slack!(c)
+        for _ in 1:something(c.method.moves, k)
+            j = rand(rng, 1:k)
+            g = view(w.G, :, j)
+            t = uniform(rng, chord(c.slack, g)...)
+            c.z[j] += t
+            for i in eachindex(c.slack)
+                c.slack[i] -= t * g[i]
+            end
+        end
+    end
+    return finish_step!(c)
+end
+
+function update_slack!(c::HitAndRunState)
+    mul!(c.slack, c.warmup.G, c.z)
+    for i in eachindex(c.slack)
+        c.slack[i] = c.warmup.h[i] - c.slack[i]
+    end
+    return c.slack
+end
+
+function finish_step!(c::HitAndRunState)
+    w = c.warmup
+    mul!(c.x, w.transform, c.z)
+    for i in eachindex(c.x)
+        c.x[i] += w.center[i]
     end
     c.n_seen += 1
     for i in eachindex(c.center)
-        c.center[i] += (c.x[i] - c.center[i]) / c.n_seen
+        c.center[i] += (c.z[i] - c.center[i]) / c.n_seen
     end
     return c
 end
@@ -153,16 +219,17 @@ end
 """
     sample([rng], w::Warmup, method, n; discard_initial = 0, thinning = 1, progress = true)
     sample([rng], w::Warmup, method, MCMCThreads(), n, nchains; kwargs...)
-    sample([rng], P::Polytope, method, args...; optimizer = HiGHS.Optimizer, kwargs...)
+    sample([rng], P::Polytope, method, args...; rounding = true, optimizer = HiGHS.Optimizer, kwargs...)
 
 Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
 matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
-and return a vector of matrices. `method` is [`HitAndRun`](@ref) or [`ACHR`](@ref).
+and return a vector of matrices. `method` is [`CoordinateHitAndRun`](@ref),
+[`HitAndRun`](@ref) or [`ACHR`](@ref).
 
 Every chain starts at the warmup center, discards `discard_initial` steps and then keeps
 every `thinning`-th point. Consecutive points are correlated; check the effective sample
 size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
-[`warmup`](@ref) once for all chains.
+[`warmup`](@ref) once for all chains, with rounding unless `rounding = false`.
 
 This is `AbstractMCMC.sample` (also `StatsBase.sample`); its other keyword arguments, such
 as `initial_state` and `callback`, apply.
@@ -177,15 +244,15 @@ diagnostics(chains)
 """
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun, n::Integer;
-        optimizer = HiGHS.Optimizer, kwargs...,
+        rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
     )
-    return sample(rng, warmup(P; optimizer), method, n; kwargs...)
+    return sample(rng, warmup(P; rounding, optimizer), method, n; kwargs...)
 end
 
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun,
         ensemble::AbstractMCMCEnsemble, n::Integer, nchains::Integer;
-        optimizer = HiGHS.Optimizer, kwargs...,
+        rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
     )
-    return sample(rng, warmup(P; optimizer), method, ensemble, n, nchains; kwargs...)
+    return sample(rng, warmup(P; rounding, optimizer), method, ensemble, n, nchains; kwargs...)
 end

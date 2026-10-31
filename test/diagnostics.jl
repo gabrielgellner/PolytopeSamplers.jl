@@ -1,5 +1,6 @@
 using PolytopeSamplers: HitAndRun, MCMCSerial, Polytope, diagnostics, sample, warmup
 using Random: Xoshiro
+using Statistics: mean
 
 @testset "diagnostics" begin
     @testset "independent draws" begin
@@ -11,6 +12,10 @@ using Random: Xoshiro
         @test d.max_rhat < 1.01
         @test d.min_ess == minimum(d.ess)
         @test all(3000 .< diagnostics(chains; kind = :tail).ess .< 5000)
+        # Standard errors of the mean and standard deviation of uniform draws
+        @test d.mean ≈ vec(mean(reduce(hcat, chains); dims = 2))
+        @test all(abs.(d.mcse_mean ./ sqrt(1 / 12 / 4000) .- 1) .< 0.2)
+        @test all(abs.(d.mcse_std ./ (sqrt(1 / 12) * sqrt(0.8 / 4 / 4000)) .- 1) .< 0.2)
     end
 
     @testset "one chain" begin

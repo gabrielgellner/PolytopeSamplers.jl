@@ -9,6 +9,9 @@ Returns a named tuple:
 
 - `ess`, `rhat`: one value per coordinate, `NaN` for coordinates that are constant over
   every chain, such as fixed coordinates.
+- `mean`, `std`: the mean and standard deviation of each coordinate over all chains.
+- `mcse_mean`, `mcse_std`: their Monte Carlo standard errors, which account for the
+  correlation between points; report estimates with these as error bars.
 - `min_ess`, `max_rhat`: the smallest ESS and the largest R̂ over the varying coordinates.
 
 `kind = :bulk` measures the center of each marginal and `kind = :tail` its 5% and 95%
@@ -33,7 +36,11 @@ function diagnostics(chains::AbstractVector{<:AbstractMatrix{<:Real}}; kind::Sym
     varying = .!isnan.(ess)
     min_ess = any(varying) ? minimum(ess[varying]) : NaN
     max_rhat = any(varying) ? maximum(rhat[varying]) : NaN
-    return (; ess, rhat, min_ess, max_rhat)
+    means = vec(mean(x; dims = (1, 2)))
+    stds = vec(std(x; dims = (1, 2)))
+    mcse_mean = mcse(x; kind = mean)
+    mcse_std = mcse(x; kind = std)
+    return (; ess, rhat, mean = means, std = stds, mcse_mean, mcse_std, min_ess, max_rhat)
 end
 
 diagnostics(X::AbstractMatrix{<:Real}; kwargs...) = diagnostics([X]; kwargs...)
