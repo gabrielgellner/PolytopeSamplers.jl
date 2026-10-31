@@ -1,4 +1,5 @@
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk,
+    HitAndRun, VaidyaWalk, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
 using Random: Xoshiro
@@ -19,7 +20,13 @@ end
 
 const methods = (
     HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
+    DikinWalk(), VaidyaWalk(),
 )
+
+# The Metropolis-filtered barrier walks need far longer chains for the fixed tolerances of
+# the uniformity tests below; test/correctness.jl checks them against their own Monte Carlo
+# standard errors
+const fast_methods = filter(m -> !(m isa Union{DikinWalk, VaidyaWalk}), methods)
 
 @testset "sample" begin
     @testset "output shape ($m)" for m in methods
@@ -40,8 +47,8 @@ const methods = (
         @test sample(Xoshiro(3), pentagon, m, 100) == X
         @test sample(Xoshiro(3), w, m, MCMCThreads(), 50, 4) ==
             sample(Xoshiro(3), pentagon, m, MCMCSerial(), 50, 4)
-        # The first point is one step from the warmup center
-        @test X[:, 1] != w.center
+        # The chain leaves the warmup center
+        @test any(x -> x != w.center, eachcol(X))
     end
 
     @testset "discard_initial and thinning ($m)" for m in methods
@@ -66,7 +73,7 @@ const methods = (
 
     # Hit-and-run points are correlated, so these tolerances are several standard errors of
     # the thinned chains. Each check runs under several seeds.
-    @testset "uniform on the unit square ($m)" for m in methods
+    @testset "uniform on the unit square ($m)" for m in fast_methods
         w = warmup(Polytope(zeros(2), ones(2)))
         for seed in 1:5
             X = sample(Xoshiro(seed), w, m, 20_000; thinning = 5)
@@ -75,7 +82,7 @@ const methods = (
         end
     end
 
-    @testset "uniform on the simplex ($m)" for m in methods
+    @testset "uniform on the simplex ($m)" for m in fast_methods
         # The marginals of the uniform distribution on the 3-simplex are Beta(1, 3)
         w = warmup(Polytope(zeros(4), ones(4); C = ones(1, 4), d = [1.0]))
         for seed in 1:5
@@ -85,7 +92,7 @@ const methods = (
         end
     end
 
-    @testset "uniform on the pentagon ($m)" for m in methods
+    @testset "uniform on the pentagon ($m)" for m in fast_methods
         μ, σ2 = pentagon_moments(Xoshiro(0), 2_000_000)
         w = warmup(pentagon)
         # The coordinates have standard deviation 1.4, so the means of 20_000 nearly

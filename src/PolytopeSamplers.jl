@@ -8,8 +8,8 @@ using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
     MAX_SENSE, MIN_SENSE, Model,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
-using LinearAlgebra: Diagonal, I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
-    normalize!, nullspace, pinv, rank, svd
+using LinearAlgebra: Diagonal, Hermitian, I, Symmetric, UpperTriangular, cholesky, cholesky!, diag, dot, eigvals, issuccess, ldiv!, lmul!, lu!, mul!, norm,
+    normalize!, nullspace, pinv, rank, svd, transpose!
 using Random: AbstractRNG, Xoshiro, default_rng, randexp, randn!
 using MCMCDiagnosticTools: ess_rhat, mcse
 using Statistics: mean, std
@@ -24,7 +24,8 @@ public Warmup
 
 include("sampler.jl")
 include("billiard.jl")
-export ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun
+include("barrier.jl")
+export ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk, HitAndRun, VaidyaWalk
 export MCMCDistributed, MCMCSerial, MCMCThreads, sample
 public AbstractHitAndRun, PolytopeSampler
 

@@ -24,6 +24,9 @@ use is sampling the interaction strengths of food webs consistent with an equili
   interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`
   are `AbstractMCMC.AbstractModel`s.
 - `src/billiard.jl`: `BilliardWalk`, the accelerated billiard walk (adapted from volesti).
+- `src/barrier.jl`: `DikinWalk` and `VaidyaWalk`, Metropolis-filtered barrier walks (adapted
+  from polytopewalk, whose proposal draws with the wrong Cholesky factor; see the comment
+  above `step!`).
 - `src/adaptive.jl`: `sample_until_converged` (chains doubled until ESS and R̂ targets)
   and `mmcs`.
 - `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
@@ -69,7 +72,7 @@ tolerances of about five standard errors. Prefer the Monte Carlo standard errors
 sampler joins the `methods` tuples in `test/sampler.jl`, `test/correctness.jl` and
 `test/stress.jl`.
 
-`test/stress.jl` (`just stress`, about 3 minutes, not part of `just ci`) checks that R̂
+`test/stress.jl` (`just stress`, about 5 minutes, not part of `just ci`) checks that R̂
 flags chains started near corners, that runs doubled until R̂ < 1.01 give correct moments
 on hard geometry, and that mixing cost grows with dimension as published (CHRR moves per
 effective sample as n²). Run it after changing a sampler, rounding or diagnostics. Check a new stochastic test under 50 or more
@@ -81,7 +84,7 @@ shifted seeds before trusting it.
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
-just stress     # convergence stress tests (about 3 minutes)
+just stress     # convergence stress tests (about 5 minutes)
 just example constrained_foodweb
 ```
 
