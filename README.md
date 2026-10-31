@@ -80,7 +80,15 @@ Carlo standard errors.
   rounding, and carry polynomial mixing guarantees. In practice they are the slowest
   methods on rounded polytopes: with 10 dimensions and 100 to 2000 constraints they needed
   360 to 490 steps per effective sample, and reached 50 to 450 effective samples per second
-  where the billiard walk reached 6500 to 44 000. Use them as independent checks.
+  where the billiard walk reached 6500 to 44 000. Use them as independent checks, and when
+  rounding is not available: on a 20-dimensional box with sides from 1e-3 to 1e3, the
+  Dikin walk reaches the same rate with or without rounding, while the billiard walk does
+  not converge without it.
+
+  | Box with sides 1e-3 to 1e3 | BilliardWalk | DikinWalk |
+  |---|---|---|
+  | `rounding = :none` | R̂ 2.66 after 256 000 points per chain | 225 ESS/s |
+  | `rounding = :ellipsoid` | 82 689 ESS/s | 218 ESS/s |
 - `HitAndRun()` draws directions uniformly from the sphere. `ACHR()` draws them from the
   running mean to an extreme point of each coordinate, solving the `2n` linear programs for
   them on first use; it is only approximately Markov and the slowest method on rounded
