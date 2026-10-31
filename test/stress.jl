@@ -12,7 +12,8 @@
 #   equalities, many facets (cross-polytope), equality polytopes (Birkhoff), 200 dimensions.
 # - Two converged samplers agree on a random polytope.
 
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk,
+    HitAndRun, VaidyaWalk,
     MCMCSerial, Polytope, diagnostics, mmcs, sample, warmup
 using AbstractMCMC: AbstractMCMC
 using LinearAlgebra: I, dot, norm
@@ -25,6 +26,7 @@ AbstractMCMC.setprogress!(false)
 
 const all_methods = (
     HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
+    DikinWalk(), VaidyaWalk(),
 )
 
 # Every mean within five Monte Carlo standard errors of the truth, every standard deviation
@@ -49,6 +51,11 @@ end
 # Double the chain length until max R̂ < 1.01, the protocol users should follow, up to
 # `cap` points per chain. Returns the diagnostics of the last run, its length and time.
 function run_to_convergence(w, m; n = 1_000, cap = 64_000, thinning = 5)
+    # The barrier walks need about 100 times the steps per effective sample of the others
+    if m isa Union{DikinWalk, VaidyaWalk}
+        thinning *= 5
+        cap ÷= 2
+    end
     while true
         d, t = run_chains(w, m, n; discard_initial = n ÷ 4, thinning)
         (d.max_rhat < 1.01 || 2n > cap) && return d, n, t
@@ -117,7 +124,7 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
         println("Coordinate moves (CHRR) or steps (others) per effective sample, simplex")
         dims = [10, 20, 40, 80]
         slopes = Dict{String, Float64}()
-        for m in (CoordinateHitAndRun(), HitAndRun(), BilliardWalk())
+        for m in (CoordinateHitAndRun(), HitAndRun(), BilliardWalk(), DikinWalk(), VaidyaWalk())
             cost = map(dims) do k
                 w = warmup(simplex(k + 1))
                 d, _ = run_chains(w, m, 4_000; seed = k, discard_initial = 2_000)
