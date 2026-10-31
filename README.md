@@ -27,18 +27,18 @@ r.diagnostics.mean, r.diagnostics.mcse_mean
 X = reduce(hcat, r.chains)            # one point per column
 ```
 
-`mmcs` is multiphase Monte Carlo sampling (Chalkis et al. 2021): one linear program finds
+`mmcs` is multiphase Monte Carlo sampling (Chalkis et al. 2021): a linear program finds
 the largest ball in the polytope, billiard-walk samples round it, and four billiard-walk
 chains run, doubling in length, until the smallest effective sample size reaches
 `target_ess` and R̂ is below 1.01. Rounding from samples avoids the dense `m × m`
 factorizations of ellipsoid rounding, but up to 2000 constraints it was the slower of the
 two (121 s against 10 s with 2000 constraints in 400 dimensions), so
-`sample_until_converged(rng, warmup(P; extremes = false))` is the faster route there.
+`sample_until_converged(rng, warmup(P))` is the faster route there.
 
 The steps can also be run separately:
 
 ```julia
-w = warmup(P)                                            # 2n LPs, ellipsoid rounding
+w = warmup(P)                                            # 2 LPs, ellipsoid rounding
 r = sample_until_converged(Xoshiro(1), w, BilliardWalk(); target_ess = 1_000)
 
 X = sample(Xoshiro(1), w, BilliardWalk(), 10_000; discard_initial = 1_000)
@@ -49,13 +49,13 @@ d.min_ess, d.max_rhat     # aim for max_rhat < 1.01
 
 `warmup` prepares the polytope:
 
-- `extremes = true` (default) solves `2n` linear programs for the extremes of each
-  coordinate, and finds every equality that holds over the polytope: `C * x .== d`, fixed
-  coordinates, and inequalities that hold with equality throughout. `extremes = false`
-  solves one linear program for the largest inscribed ball instead and falls back to `2n`
-  only when that ball has radius zero, as a polytope with room for a ball has no hidden
-  equalities. Use it for large problems: with 1000 constraints in 200 dimensions, warmup and
-  sampling to 1000 ESS take 4 s with `extremes = false` and 59 s with `extremes = true`.
+- `extremes = false` (default) solves one linear program for the largest inscribed ball in
+  the slice of `C * x .== d` and the fixed coordinates, and one more to check that the
+  polytope is bounded. A polytope with room for a ball has no other equalities; when the
+  ball has radius zero, `warmup` falls back to `extremes = true`. `extremes = true` solves
+  `2n` linear programs for the extremes of each coordinate and finds the equalities that
+  hold throughout from them. With 1000 constraints in 200 dimensions, warmup and sampling to
+  1000 ESS take 4 s with the default and 59 s with `extremes = true`.
 - `rounding = :ellipsoid` (default) maps the maximum-volume inscribed ellipsoid to the unit
   ball until the polytope is close to round; `:samples` rounds from billiard-walk samples;
   `:none` skips rounding.
@@ -75,8 +75,9 @@ Carlo standard errors.
   in cyclic order by default; moves per effective sample grow as the square of the
   dimension.
 - `HitAndRun()` draws directions uniformly from the sphere. `ACHR()` draws them from the
-  running mean to a warmup point; it is only approximately Markov, needs
-  `warmup(P; extremes = true)`, and is the slowest method on rounded polytopes.
+  running mean to an extreme point of each coordinate, solving the `2n` linear programs for
+  them on first use; it is only approximately Markov and the slowest method on rounded
+  polytopes.
 
 On the 63-dimensional food web polytope of the example (four chains of 2000 points):
 
