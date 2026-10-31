@@ -1,7 +1,7 @@
 # PolytopeSamplers.jl
 
-Uniform sampling of convex polytopes by Markov chain Monte Carlo: hit-and-run and artificial
-centering hit-and-run (ACHR). Linear programs for the warmup are solved with
+Uniform sampling of convex polytopes by Markov chain Monte Carlo: coordinate hit-and-run with
+rounding (CHRR), hit-and-run and artificial centering hit-and-run (ACHR). Linear programs for the warmup are solved with
 [HiGHS](https://highs.dev). The package was called HRMCMC.jl until 2026.
 
 ```julia
@@ -12,8 +12,9 @@ Pkg.add(url = "https://github.com/gabrielgellner/PolytopeSamplers.jl")
 ## Usage
 
 A `Polytope` is the set of `x` with `lower .<= x .<= upper`, `A * x .<= b` and `C * x .== d`.
-`warmup` minimizes and maximizes each coordinate by linear programming to find a starting
-point and the directions in which the polytope has width. `sample` implements the
+`warmup` minimizes and maximizes each coordinate by linear programming to find the directions
+in which the polytope has width, then rounds it: it maps the maximum-volume inscribed
+ellipsoid to the unit ball until the polytope is close to round. `sample` implements the
 [AbstractMCMC](https://github.com/TuringLang/AbstractMCMC.jl) interface: it returns one
 point per column, or one matrix per chain when run with `MCMCThreads()`, and `diagnostics`
 reports the effective sample size and R̂ of each coordinate.
@@ -24,17 +25,22 @@ using PolytopeSamplers, Random
 # The triangle x ≥ 0, x1 + x2 ≤ 1
 P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])
 w = warmup(P)
-X = sample(Xoshiro(1), w, ACHR(), 10_000; discard_initial = 1_000, thinning = 10)
+X = sample(Xoshiro(1), w, CoordinateHitAndRun(), 10_000; discard_initial = 1_000)
 
-chains = sample(Xoshiro(1), w, HitAndRun(), MCMCThreads(), 2_000, 4; thinning = 10)
+chains = sample(Xoshiro(1), w, CoordinateHitAndRun(), MCMCThreads(), 2_000, 4)
 d = diagnostics(chains)
-d.min_ess, d.max_rhat
+d.min_ess, d.max_rhat     # aim for max_rhat < 1.01
+d.mean, d.mcse_mean       # estimates with Monte Carlo standard errors
 ```
 
-- `method = HitAndRun()` draws directions uniformly from the sphere; the chain is Markov with
-  the uniform distribution as its stationary distribution. `ACHR()` draws directions from the
-  running mean of the chain to a warmup point, which mixes faster in long thin polytopes
-  but is only approximately Markov.
+- `CoordinateHitAndRun()` on the rounded warmup is CHRR (Haraldsdóttir et al. 2017), the
+  COBRA Toolbox default and the recommended method. Each step makes one coordinate move per
+  dimension at `O(m)` each. `HitAndRun()` draws directions uniformly from the sphere.
+  `ACHR()` draws them from the running mean to a warmup point and is only approximately
+  Markov.
+- On the 63-dimensional food web polytope of the example, CHRR reaches R̂ 1.005 with about
+  2000 effective samples per second; unrounded hit-and-run, the method of the 2019 version,
+  reaches R̂ 2 with 17.
 - Equalities can come from `C * x .== d`, from coordinates with `lower[i] == upper[i]`, or
   from inequalities that hold with equality over the whole polytope. `warmup` finds all
   three and keeps chains on the slice they define.
