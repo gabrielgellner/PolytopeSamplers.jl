@@ -98,9 +98,12 @@ const SLACK_REFRESH = 100
 
 # The state of one chain, in the coordinates `z` of the warmup, with buffers so that a step
 # does not allocate
-mutable struct HitAndRunState{M <: AbstractHitAndRun}
+mutable struct HitAndRunState{M <: AbstractHitAndRun, D}
     const method::M
     const warmup::Warmup
+    const density::D # nothing for the uniform distribution
+    const zt::Vector{Float64} # a point on the chord, for the density
+    logp::Float64 # log density at z, NaN until computed
     const z::Vector{Float64}
     const x::Vector{Float64} # center + transform * z
     const u::Vector{Float64} # direction
@@ -113,16 +116,24 @@ mutable struct HitAndRunState{M <: AbstractHitAndRun}
     next_coordinate::Int # for the cyclic scan
 end
 
-chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w)
+chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w, nothing)
 
-function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
+function chain_state(method::Union{HitAndRun, CoordinateHitAndRun}, t::Target)
+    return HitAndRunState(method, t.warmup, chain_density(t))
+end
+
+function chain_state(::ACHR, ::Target)
+    throw(ArgumentError("ACHR samples only the uniform distribution"))
+end
+
+function HitAndRunState(method::AbstractHitAndRun, w::Warmup, density)
     k = size(w.transform, 2)
     m = length(w.h)
     zpoints = method isa ACHR ? extreme_zpoints(w) : w.zpoints
     center = isempty(zpoints) ? zeros(k) : vec(mean(zpoints; dims = 2))
     return HitAndRunState(
-        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), center, zpoints,
-        size(zpoints, 2), 0, 1,
+        method, w, density, zeros(k), NaN, zeros(k), copy(w.center), zeros(k), copy(w.h),
+        zeros(m), center, zpoints, size(zpoints, 2), 0, 1,
     )
 end
 
@@ -172,14 +183,41 @@ end
 
 uniform(rng, tmin, tmax) = tmin + (tmax - tmin) * rand(rng)
 
-# One step: move `c.z` along a new direction to a uniform point on the chord, update the
-# running mean and `c.x`
+# A point on the chord `[tmin, tmax]` along `direction` (a vector, or a coordinate index)
+# from the current point: uniform without a density, otherwise by slice sampling from the
+# density along the chord
+function draw_on_chord(rng, ::HitAndRunState{<:AbstractHitAndRun, Nothing}, tmin, tmax, direction)
+    return uniform(rng, tmin, tmax)
+end
+
+function draw_on_chord(rng, c::HitAndRunState{<:AbstractHitAndRun, <:ZDensity}, tmin, tmax, direction)
+    isnan(c.logp) && (c.logp = logdensity_z(c.density, c.z))
+    logp(t) = logdensity_z(c.density, chord_point!(c.zt, c.z, t, direction))
+    t, c.logp = slice_on_chord(rng, logp, c.logp, tmin, tmax)
+    return t
+end
+
+function chord_point!(zt, z, t, u::AbstractVector)
+    for i in eachindex(zt)
+        zt[i] = z[i] + t * u[i]
+    end
+    return zt
+end
+
+function chord_point!(zt, z, t, j::Integer)
+    copyto!(zt, z)
+    zt[j] += t
+    return zt
+end
+
+# One step: move `c.z` along a new direction to a point on the chord, uniform or drawn
+# from the density, and update the running mean and `c.x`
 function step!(rng::AbstractRNG, c::HitAndRunState)
     w = c.warmup
     if direction!(rng, c)
         refresh_slack!(c)
         mul!(c.Gu, w.G, c.u)
-        t = uniform(rng, chord(c.slack, c.Gu)...)
+        t = draw_on_chord(rng, c, chord(c.slack, c.Gu)..., c.u)
         for i in eachindex(c.z)
             c.z[i] += t * c.u[i]
         end
@@ -204,7 +242,7 @@ function step!(rng::AbstractRNG, c::HitAndRunState{CoordinateHitAndRun})
             j = cyclic ? c.next_coordinate : rand(rng, 1:k)
             c.next_coordinate = j == k ? 1 : j + 1
             g = view(w.G, :, j)
-            t = uniform(rng, chord(c.slack, g)...)
+            t = draw_on_chord(rng, c, chord(c.slack, g)..., j)
             c.z[j] += t
             for i in eachindex(c.slack)
                 c.slack[i] -= t * g[i]
@@ -250,15 +288,17 @@ function finish_step!(c::HitAndRunState)
 end
 
 # AbstractMCMC interface. The first step starts from the warmup center.
-function AbstractMCMC.step(rng::AbstractRNG, w::Warmup, method::PolytopeSampler; kwargs...)
-    c = step!(rng, chain_state(method, w))
+const SamplingModel = Union{Warmup, Target}
+
+function AbstractMCMC.step(rng::AbstractRNG, model::SamplingModel, method::PolytopeSampler; kwargs...)
+    c = step!(rng, chain_state(method, model))
     return copy(c.x), c
 end
 
 # Samplers may report problems found during their steps here, outside the hot loop
 check_state(c) = c
 
-function AbstractMCMC.step(rng::AbstractRNG, ::Warmup, ::PolytopeSampler, c; kwargs...)
+function AbstractMCMC.step(rng::AbstractRNG, ::SamplingModel, ::PolytopeSampler, c; kwargs...)
     step!(rng, c)
     check_state(c)
     return copy(c.x), c
@@ -267,7 +307,7 @@ end
 # Return the points of a chain as the columns of a matrix, unless another `chain_type` is
 # asked for
 function AbstractMCMC.bundle_samples(
-        samples::Vector{Vector{Float64}}, ::Warmup, ::PolytopeSampler, state, ::Type{Any};
+        samples::Vector{Vector{Float64}}, ::SamplingModel, ::PolytopeSampler, state, ::Type{Any};
         kwargs...,
     )
     X = Matrix{Float64}(undef, length(state.x), length(samples))
@@ -280,11 +320,12 @@ end
 """
     sample([rng], w::Warmup, method, n; discard_initial = 0, thinning = 1, progress = true)
     sample([rng], w::Warmup, method, MCMCThreads(), n, nchains; kwargs...)
+    sample([rng], t::Target, method, args...; kwargs...)
     sample([rng], P::Polytope, method, args...; extremes = false, rounding = :ellipsoid,
            optimizer = HiGHS.Optimizer, kwargs...)
 
-Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
-matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
+Draw `n` points from the uniform distribution on a polytope, or from the density of a
+[`Target`](@ref), returned as the columns of a matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
 and return a vector of matrices. `method` is [`CoordinateHitAndRun`](@ref),
 [`BilliardWalk`](@ref), [`HitAndRun`](@ref) or [`ACHR`](@ref).
 

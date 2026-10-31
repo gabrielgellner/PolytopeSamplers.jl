@@ -51,9 +51,11 @@ Base.show(io::IO, m::VaidyaWalk) = print(io, "VaidyaWalk(", m.r == 0.7 ? "" : "r
 
 # The state of a barrier walk, with the Cholesky factor of the barrier Hessian at the current
 # point, so that a step factors only at the proposal
-mutable struct BarrierState{M <: BarrierWalk}
+mutable struct BarrierState{M <: BarrierWalk, D}
     const method::M
     const warmup::Warmup
+    const density::D # nothing for the uniform distribution
+    logp::Float64 # log density at z
     const z::Vector{Float64}
     const x::Vector{Float64}
     const zprop::Vector{Float64}
@@ -73,12 +75,15 @@ mutable struct BarrierState{M <: BarrierWalk}
     accepted::Int
 end
 
-function chain_state(method::BarrierWalk, w::Warmup)
+chain_state(method::BarrierWalk, t::Target) = barrier_state(method, t.warmup, chain_density(t))
+chain_state(method::BarrierWalk, w::Warmup) = barrier_state(method, w, nothing)
+
+function barrier_state(method::BarrierWalk, w::Warmup, density)
     k = size(w.transform, 2)
     m = length(w.h)
     D = method isa DikinWalk ? method.r^2 / k : method.r^2 / sqrt(k * m)
     return BarrierState(
-        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k), zeros(k),
+        method, w, density, 0.0, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k), zeros(k),
         zeros(m, k), zeros(k, k), zeros(k, m), zeros(k, k), zeros(k, k), 0.0, sqrt(D), false,
         0, 0,
     )
@@ -140,6 +145,7 @@ function step!(rng::AbstractRNG, c::BarrierState)
         update_slack!(c)
         c.logdet = factor_hessian!(c.U, c, c.slack)
         isfinite(c.logdet) || throw(ArgumentError("the chain must start strictly inside the polytope"))
+        c.logp = logdensity_or_zero(c.density, c.z)
         c.ready = true
     end
     randn!(rng, c.step)
@@ -160,8 +166,10 @@ function step!(rng::AbstractRNG, c::BarrierState)
         if isfinite(logdet)
             qz = quadratic_form!(c.work, c.U, c.step)
             qprop = quadratic_form!(c.work, c.Uprop, c.step)
-            logα = logdet - c.logdet - (qprop - qz) / (2 * c.scale^2)
+            logp = logdensity_or_zero(c.density, c.zprop)
+            logα = logp - c.logp + logdet - c.logdet - (qprop - qz) / (2 * c.scale^2)
             if log(rand(rng)) < logα
+                c.logp = logp
                 copyto!(c.z, c.zprop)
                 copyto!(c.slack, c.slackprop)
                 c.U, c.Uprop = c.Uprop, c.U

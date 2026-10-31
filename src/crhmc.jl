@@ -12,7 +12,9 @@ the coordinates `z` of the [`Warmup`](@ref): with slacks `s = h - G z` as the bo
 variables, the projected metric is `g(z) = Gᵀ S⁻² G`, the Hessian of the log barrier of
 `G z ≤ h`, and the Hamiltonian is
 
-    H(z, p) = ½ log det g(z) + ½ pᵀ g(z)⁻¹ p.
+    H(z, p) = ½ log det g(z) + ½ pᵀ g(z)⁻¹ p,
+
+minus the log density for a [`Target`](@ref).
 
 Each step refreshes the momentum partially (`p ← √μ p + √(1 - μ) g^½ ξ` with
 `μ = 1 - h / effective_step_size`), takes one step of the Strang splitting of the
@@ -73,9 +75,10 @@ const CRHMC_REFACTOR = 5
 # Ridge added to the metric, as the reference adds 1e-20 to its Hessian
 const CRHMC_RIDGE = 1.0e-20
 
-mutable struct CRHMCState
+mutable struct CRHMCState{D}
     const method::CRHMC
     const warmup::Warmup
+    const density::D # nothing for the uniform distribution
     const z::Vector{Float64}
     const x::Vector{Float64}
     const p::Vector{Float64} # momentum
@@ -129,13 +132,22 @@ function check_state(c::CRHMCState)
     return c
 end
 
-function chain_state(method::CRHMC, w::Warmup)
+chain_state(method::CRHMC, w::Warmup) = crhmc_state(method, w, nothing)
+
+function chain_state(method::CRHMC, t::Target)
+    density = chain_density(t)
+    has_gradient(density) ||
+        throw(ArgumentError("CRHMC needs the gradient of the log density; pass `gradient` to Target"))
+    return crhmc_state(method, t.warmup, density)
+end
+
+function crhmc_state(method::CRHMC, w::Warmup, density)
     k = size(w.transform, 2)
     m = length(w.h)
     v() = zeros(k)
     h = CRHMC_MIN_STEP
     return CRHMCState(
-        method, w,
+        method, w, density,
         v(), copy(w.center), v(), # z, x, p
         v(), v(), v(), v(), v(), v(), v(), # z1, p1, z2, p2, zmid, pmid, zold
         v(), v(), v(), fill(NaN, k), # dKdz, dKdp, dU, dU_z
@@ -180,7 +192,7 @@ function metric!(c::CRHMCState, z)
     return ok
 end
 
-# ∇U = Gᵀ (σ ./ s), with σ the leverage scores of S⁻¹ G
+# ∇U = Gᵀ (σ ./ s) - ∇ℓ, with σ the leverage scores of S⁻¹ G and ℓ the log density
 function grad_potential!(out, c::CRHMCState, z)
     metric!(c, z) || return false
     transpose!(c.X, c.B)
@@ -194,6 +206,7 @@ function grad_potential!(out, c::CRHMCState, z)
         c.Gw[i] = σ / c.s[i]
     end
     mul!(out, c.warmup.G', c.Gw)
+    c.density === nothing || add_gradient_z!(out, c.density, z, -1.0)
     return true
 end
 
@@ -211,12 +224,12 @@ function grad_kinetic!(dKdp, dKdz, c::CRHMCState, z, p)
     return true
 end
 
-# H(z, p) = ½ log det g + ½ pᵀ g⁻¹ p; Inf outside the polytope
+# H(z, p) = -ℓ(z) + ½ log det g + ½ pᵀ g⁻¹ p; Inf outside the polytope
 function hamiltonian(c::CRHMCState, z, p)
     metric!(c, z) || return Inf
     copyto!(c.work, p)
     ldiv!(UpperTriangular(c.U)', c.work)
-    return c.logdet + sum(abs2, c.work) / 2
+    return c.logdet + sum(abs2, c.work) / 2 - logdensity_or_zero(c.density, z)
 end
 
 # Slacks `h - G z` into `s`; false if any is not positive

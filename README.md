@@ -112,6 +112,26 @@ On the 63-dimensional food web polytope of the example (four chains of 2000 poin
 Estimates agree with hopsy 1.7 on the same polytopes within their Monte Carlo standard
 errors.
 
+### Non-uniform targets
+
+`Target(P, ℓ)` is the distribution with density proportional to `exp(ℓ(x))` on the
+polytope, for a function `ℓ` or any object implementing
+[LogDensityProblems](https://github.com/tpapp/LogDensityProblems.jl):
+
+```julia
+# Dirichlet(2, 3, 4) on the simplex x ≥ 0, sum(x) = 1
+P = Polytope(zeros(3), ones(3); C = ones(1, 3), d = [1.0])
+α = [2.0, 3.0, 4.0]
+t = Target(P, x -> sum((α .- 1) .* log.(x)); gradient = (g, x) -> (g .= (α .- 1) ./ x))
+r = sample_until_converged(Xoshiro(1), t, CoordinateHitAndRun())
+```
+
+- `HitAndRun()` and `CoordinateHitAndRun()` draw each point on a chord from the density
+  along it by slice sampling (Neal 2003), which is exact for any `ℓ` and needs no tuning.
+- `DikinWalk()` and `VaidyaWalk()` add `ℓ` to their Metropolis ratio.
+- `CRHMC()` adds `-ℓ` to its potential and needs the gradient of `ℓ`.
+- `BilliardWalk()` and `ACHR()` sample only the uniform distribution.
+
 ### Threads
 
 Start Julia with threads (`julia --threads=auto`) and two kinds of work run in parallel:
