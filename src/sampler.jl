@@ -1,11 +1,20 @@
 """
+    PolytopeSampler
+
+Supertype of the samplers: the hit-and-run methods ([`AbstractHitAndRun`](@ref)) and
+[`BilliardWalk`](@ref). All of them move in the coordinates of a [`Warmup`](@ref), which are
+rounded by default. A sampler `S` implements `chain_state(S, w)`, returning a state with
+fields `warmup` and `x` (the current point), and `step!(rng, state)`.
+"""
+abstract type PolytopeSampler <: AbstractSampler end
+
+"""
     AbstractHitAndRun
 
 Supertype of the hit-and-run methods, which differ in how they choose a direction:
-[`HitAndRun`](@ref), [`ACHR`](@ref) and [`CoordinateHitAndRun`](@ref). All of them move in
-the coordinates of a [`Warmup`](@ref), which are rounded by default.
+[`HitAndRun`](@ref), [`ACHR`](@ref) and [`CoordinateHitAndRun`](@ref).
 """
-abstract type AbstractHitAndRun <: AbstractSampler end
+abstract type AbstractHitAndRun <: PolytopeSampler end
 
 """
     HitAndRun()
@@ -44,7 +53,11 @@ random, uniformly on its chord. On a rounded warmup this is CHRR (Haraldsdóttir
 as the slacks are updated in place; each step of the chain makes `moves` moves (default:
 the dimension `k` of the warmup), so a step costs about as much as one of
 [`HitAndRun`](@ref). The chain is Markov and reversible, with the uniform distribution as
-its stationary distribution.
+its stationary distribution. Coordinate moves per effective sample grow as `k²`.
+
+A chain started exactly at a vertex never moves when no coordinate axis points into the
+polytope there, as on a simplex; chains started by `sample` begin at the interior center.
+[`BilliardWalk`](@ref) leaves corners quickly and needs fewer steps per effective sample.
 
 Haraldsdóttir, H. S., Cousins, B., Thiele, I., Fleming, R. M. T. & Vempala, S. (2017).
 CHRR: coordinate hit-and-run with rounding for uniform sampling of constraint-based models.
@@ -80,6 +93,8 @@ mutable struct HitAndRunState{M <: AbstractHitAndRun}
     const center::Vector{Float64} # running mean of z, for ACHR
     n_seen::Int # points in the running mean
 end
+
+chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w)
 
 function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
     k = size(w.transform, 2)
@@ -173,7 +188,7 @@ function step!(rng::AbstractRNG, c::HitAndRunState{CoordinateHitAndRun})
     return finish_step!(c)
 end
 
-function update_slack!(c::HitAndRunState)
+function update_slack!(c)
     mul!(c.slack, c.warmup.G, c.z)
     for i in eachindex(c.slack)
         c.slack[i] = c.warmup.h[i] - c.slack[i]
@@ -181,12 +196,18 @@ function update_slack!(c::HitAndRunState)
     return c.slack
 end
 
-function finish_step!(c::HitAndRunState)
+# Set `c.x = center + transform * c.z`
+function update_x!(c)
     w = c.warmup
     mul!(c.x, w.transform, c.z)
     for i in eachindex(c.x)
         c.x[i] += w.center[i]
     end
+    return c
+end
+
+function finish_step!(c::HitAndRunState)
+    update_x!(c)
     c.n_seen += 1
     for i in eachindex(c.center)
         c.center[i] += (c.z[i] - c.center[i]) / c.n_seen
@@ -195,14 +216,12 @@ function finish_step!(c::HitAndRunState)
 end
 
 # AbstractMCMC interface. The first step starts from the warmup center.
-function AbstractMCMC.step(rng::AbstractRNG, w::Warmup, method::AbstractHitAndRun; kwargs...)
-    c = step!(rng, HitAndRunState(method, w))
+function AbstractMCMC.step(rng::AbstractRNG, w::Warmup, method::PolytopeSampler; kwargs...)
+    c = step!(rng, chain_state(method, w))
     return copy(c.x), c
 end
 
-function AbstractMCMC.step(
-        rng::AbstractRNG, ::Warmup, ::AbstractHitAndRun, c::HitAndRunState; kwargs...,
-    )
+function AbstractMCMC.step(rng::AbstractRNG, ::Warmup, ::PolytopeSampler, c; kwargs...)
     step!(rng, c)
     return copy(c.x), c
 end
@@ -210,7 +229,7 @@ end
 # Return the points of a chain as the columns of a matrix, unless another `chain_type` is
 # asked for
 function AbstractMCMC.bundle_samples(
-        samples::Vector{Vector{Float64}}, ::Warmup, ::AbstractHitAndRun, state, ::Type{Any};
+        samples::Vector{Vector{Float64}}, ::Warmup, ::PolytopeSampler, state, ::Type{Any};
         kwargs...,
     )
     return reduce(hcat, samples; init = zeros(length(state.x), 0))
@@ -224,7 +243,7 @@ end
 Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
 matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
 and return a vector of matrices. `method` is [`CoordinateHitAndRun`](@ref),
-[`HitAndRun`](@ref) or [`ACHR`](@ref).
+[`BilliardWalk`](@ref), [`HitAndRun`](@ref) or [`ACHR`](@ref).
 
 Every chain starts at the warmup center, discards `discard_initial` steps and then keeps
 every `thinning`-th point. Consecutive points are correlated; check the effective sample
@@ -243,14 +262,14 @@ diagnostics(chains)
 ```
 """
 function AbstractMCMC.sample(
-        rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun, n::Integer;
+        rng::AbstractRNG, P::Polytope, method::PolytopeSampler, n::Integer;
         rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
     )
     return sample(rng, warmup(P; rounding, optimizer), method, n; kwargs...)
 end
 
 function AbstractMCMC.sample(
-        rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun,
+        rng::AbstractRNG, P::Polytope, method::PolytopeSampler,
         ensemble::AbstractMCMCEnsemble, n::Integer, nchains::Integer;
         rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
     )

@@ -16,10 +16,11 @@ use is sampling the interaction strengths of food webs consistent with an equili
   Samplers move in `z`.
 - `src/rounding.jl`: the Chebyshev center, the maximum-volume inscribed ellipsoid (adapted
   from volesti and PolyRound) and the rounding loop.
-- `src/sampler.jl`: `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack updates adapted from
-  hops), the allocation-free steps and the AbstractMCMC
+- `src/sampler.jl`: `PolytopeSampler`, `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack
+  updates adapted from hops), the allocation-free steps and the AbstractMCMC
   interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`
   are `AbstractMCMC.AbstractModel`s.
+- `src/billiard.jl`: `BilliardWalk`, the accelerated billiard walk (adapted from volesti).
 - `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
   Carlo standard errors per coordinate via MCMCDiagnosticTools.
 - `test/correctness.jl`: checks adapted from the test suites of volesti, hopsy, hops and
@@ -58,7 +59,13 @@ Test sampling against exact moments of the uniform distribution (unit square, si
 a large rejection sample (the pentagon of the original test), under several seeds, with
 tolerances of about five standard errors. Prefer the Monte Carlo standard errors from
 `diagnostics` over fixed tolerances: they test the error bars users report too. Every new
-sampler joins the `methods` tuples in `test/sampler.jl` and `test/correctness.jl`. Check a new stochastic test under 50 or more
+sampler joins the `methods` tuples in `test/sampler.jl`, `test/correctness.jl` and
+`test/stress.jl`.
+
+`test/stress.jl` (`just stress`, about 3 minutes, not part of `just ci`) checks that R̂
+flags chains started near corners, that runs doubled until R̂ < 1.01 give correct moments
+on hard geometry, and that mixing cost grows with dimension as published (CHRR moves per
+effective sample as n²). Run it after changing a sampler, rounding or diagnostics. Check a new stochastic test under 50 or more
 shifted seeds before trusting it.
 
 ## Commands
@@ -67,6 +74,7 @@ shifted seeds before trusting it.
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
+just stress     # convergence stress tests (about 3 minutes)
 just example constrained_foodweb
 ```
 

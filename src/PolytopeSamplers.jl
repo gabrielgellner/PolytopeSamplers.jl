@@ -9,7 +9,7 @@ using JuMP: @constraint, @objective, @variable, INFEASIBLE, INFEASIBLE_OR_UNBOUN
     termination_status, value
 using LinearAlgebra: I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
     normalize!, nullspace, pinv, svd
-using Random: AbstractRNG, randn!
+using Random: AbstractRNG, randexp, randn!
 using MCMCDiagnosticTools: ess_rhat, mcse
 using Statistics: mean, std
 
@@ -22,9 +22,10 @@ export warmup
 public Warmup
 
 include("sampler.jl")
-export ACHR, CoordinateHitAndRun, HitAndRun
+include("billiard.jl")
+export ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun
 export MCMCDistributed, MCMCSerial, MCMCThreads, sample
-public AbstractHitAndRun
+public AbstractHitAndRun, PolytopeSampler
 
 include("diagnostics.jl")
 export diagnostics
