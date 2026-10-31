@@ -72,7 +72,7 @@ Tasks are run with [just](https://github.com/casey/just):
 ```sh
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
-just check      # formatting check, JETLS lint, and tests (what CI runs)
+just ci         # formatting check, JETLS lint and tests; run before every push and merge
 ```
 
 ## License

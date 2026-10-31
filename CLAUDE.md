@@ -56,9 +56,14 @@ shifted seeds before trusting it.
 ```sh
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
-just check      # formatting check, JETLS lint, tests (what CI runs)
+just ci         # formatting check, JETLS lint and tests; run before every push and merge
 just example constrained_foodweb
 ```
+
+## Checks
+
+GitHub Actions is disabled for the repository. Run `just ci` before every push and before
+merging a pull request, and state in the pull request that it passed.
 
 ## Commits
 
