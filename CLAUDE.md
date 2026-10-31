@@ -1,0 +1,128 @@
+# HRMCMC.jl
+
+Uniform sampling of convex polytopes by hit-and-run MCMC (plain hit-and-run and artificial
+centering hit-and-run), with warmup linear programs solved by HiGHS through JuMP. The main
+use is sampling the interaction strengths of food webs consistent with an equilibrium, as in
+[constrained-foodwebs](https://github.com/gabrielgellner/constrained-foodwebs).
+
+## Layout
+
+- `src/polytope.jl`: `Polytope` (`lower .<= x .<= upper`, `A * x .<= b`, `C * x .== d`),
+  `isfeasible`, `isempty`, and the JuMP model of a polytope.
+- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs and finds the
+  equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities)
+  and an orthonormal basis of the directions that keep them.
+- `src/sampler.jl`: `HitAndRun`, `ACHR`, the allocation-free step and `hr_sample`.
+- `test/`: one test file per source file. Workspace project with the test-only dependencies.
+- `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub).
+- The 2018–2019 history of the original prototype is kept in git; the package was rewritten
+  in 2026 for Julia 1.13.
+
+## Conventions
+
+- Samples are the columns of the returned matrix.
+- Functions that draw random numbers take an optional leading `rng::AbstractRNG`.
+- The step clamps constraint slacks at zero and ignores direction components below
+  `ZERO_TOL`, so rounding never gives an interval that excludes the current point; it does
+  not tighten bounds.
+- `step!` is type stable and allocation free; `test/sampler.jl` enforces this with JET's
+  `@test_opt` and AllocCheck. Keep it so when adding a method.
+- Julia 1.13 only. Imports are explicit (`using X: a, b`), checked by ExplicitImports.
+
+## Tests
+
+Test sampling against exact moments of the uniform distribution (unit square, simplex) or
+a large rejection sample (the pentagon of the original test), under several seeds, with
+tolerances of about five standard errors. Check a new stochastic test under 50 or more
+shifted seeds before trusting it.
+
+## Commands
+
+```sh
+just setup      # install Runic and JETLS as Julia apps, instantiate environments
+just fmt        # format with Runic
+just check      # formatting check, JETLS lint, tests (what CI runs)
+just example constrained_foodweb
+```
+
+## Commits
+
+Conventional commits, `type(scope): subject`, with the issue as `(#N)` at the end when
+there is one. git-cliff builds `CHANGELOG.md` from the subjects (`cliff.toml`): the type
+picks the section an entry lands in, and git-cliff drops a subject it cannot parse.
+
+- `feat` → Features, `fix` → Bug Fixes, `docs` → Documentation, `perf` → Performance,
+  `refactor` → Refactoring, `test` → Testing, `chore` → Miscellaneous.
+- `!` after the type or scope (`fix!:`, `feat(sampler)!:`) marks a breaking change: it heads
+  the entry under Breaking Changes and bumps the minor version while we are pre-1.0.
+- `ci`, `chore(release)` and merge commits are left out of the changelog.
+- Write the subject as the changelog line a user reads: what changed, in the imperative
+  ("Add the nested-hierarchy model").
+
+Releases run through `just release-1-preview` … `just release-4-merge`: preview the
+version, write the changelog on a `release/vX` branch (edit it by hand if needed), open the
+release PR with the version bumped in `Project.toml`, then merge, tag the merge commit and
+create the GitHub release from the edited changelog section.
+
+## Writing style
+
+These rules cover all prose written for this repo: comments, docstrings, documentation,
+commit messages, issues and PRs.
+
+Write in plain language. State claims directly, in the order the reader
+needs them. Use subject-verb-object sentences, concrete nouns, and the
+actual number, name, or mechanism instead of an allusion to it.
+
+Follow these rules from Strunk & White:
+
+- Put statements in positive form.
+- Use definite, specific, concrete language.
+- Omit needless words.
+
+Avoid these constructions everywhere (sentences, headings, titles, lists):
+
+- Contrast by negation: "not X, but Y", "it's not about X, it's about Y",
+  "X isn't the problem; Y is". State Y. Mention X only if someone
+  actually holds that view.
+- Hook clauses that read like half a question: "what X doesn't tell you",
+  "the part nobody mentions", "the evidence Y lacks", "why this matters".
+  State the fact the clause points at.
+- Colon reveals: "The real issue: ...", "Here's the thing: ...",
+  "The short version: ...". Drop the setup and write the sentence.
+- Punchline structure: ending a sentence or list on a twist, a dramatic
+  final item, or a short fragment for emphasis.
+- Rhetorical questions that the text then answers.
+- Framing work or ideas by what is missing when you can name what is
+  present or proposed.
+
+Titles (milestones, issues, PRs, headings):
+
+- Name the deliverable or scope as a plain noun phrase or imperative.
+  A reader should know from the title alone what gets merged or decided.
+- Use a colon only to separate a component name from the work item
+  (e.g. "Query DSL: add DuckDB backend"), never to introduce a hook.
+
+Examples:
+
+```text
+Bad:  Conformance evidence: what the green checks do not prove
+Good: Conformance: add negative and edge-case test fixtures
+
+Bad:  Query DSL: a second backend, and the evidence the first one lacks
+Good: Query DSL: add second backend; add validation tests for SQL backend
+
+Bad:  The green checks tell you less than you'd think.
+Good: The green checks only cover valid inputs; there are no tests
+      for malformed DSDs or constraint violations.
+
+Bad:  The problem isn't performance — it's correctness.
+Good: The cache returns stale codelists after a version bump.
+
+Bad:  Here's what the benchmark doesn't show: cold-start latency.
+Good: The benchmark measures warm queries only; cold-start latency
+      is untested.
+```
+
+Before finishing, reread the output. Rewrite any sentence that delays its
+point, contrasts with a claim nobody made, or alludes to a fact instead of
+stating it.
