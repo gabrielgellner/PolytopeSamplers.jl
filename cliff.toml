@@ -22,7 +22,8 @@ footer = ""
 
 [git]
 conventional_commits = true
-filter_unconventional = false
+# The 2018–2019 history predates conventional commits and is left out of the changelog
+filter_unconventional = true
 split_commits = false
 commit_preprocessors = []
 commit_parsers = [
