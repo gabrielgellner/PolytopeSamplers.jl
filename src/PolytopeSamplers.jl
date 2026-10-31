@@ -3,6 +3,7 @@ module PolytopeSamplers
 using AbstractMCMC: AbstractMCMC, AbstractMCMCEnsemble, AbstractModel, AbstractSampler,
     MCMCDistributed, MCMCSerial, MCMCThreads, sample
 using HiGHS: HiGHS
+using LogDensityProblems: LogDensityProblems, LogDensityOrder
 using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
     INFEASIBLE_OR_UNBOUNDED,
     MAX_SENSE, MIN_SENSE, Model,
@@ -21,6 +22,9 @@ include("rounding.jl")
 include("warmup.jl")
 export warmup
 public Warmup
+
+include("density.jl")
+export Target
 
 include("sampler.jl")
 include("billiard.jl")

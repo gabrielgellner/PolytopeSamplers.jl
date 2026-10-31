@@ -19,6 +19,10 @@ use is sampling the interaction strengths of food webs consistent with an equili
 - `src/rounding.jl`: the Chebyshev center, the maximum-volume inscribed ellipsoid (adapted
   from volesti and PolyRound), the ellipsoid rounding loop, and rounding from billiard-walk
   samples (the MMCS phases, adapted from volesti).
+- `src/density.jl`: `Target` (a warmup with a log density, LogDensityProblems or a
+  function), its evaluation in `z`, and slice sampling on a chord. States carry the density
+  as a type parameter, `nothing` for the uniform distribution, so the uniform steps keep no
+  density code and stay allocation free.
 - `src/sampler.jl`: `PolytopeSampler`, `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack
   updates adapted from hops), the allocation-free steps and the AbstractMCMC
   interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`

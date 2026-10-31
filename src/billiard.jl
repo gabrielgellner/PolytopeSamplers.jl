@@ -59,6 +59,10 @@ mutable struct BilliardState
     steps::Int # steps taken, for refreshing the slacks
 end
 
+function chain_state(::BilliardWalk, ::Target)
+    throw(ArgumentError("BilliardWalk samples only the uniform distribution"))
+end
+
 function chain_state(method::BilliardWalk, w::Warmup)
     k = size(w.transform, 2)
     m = length(w.h)

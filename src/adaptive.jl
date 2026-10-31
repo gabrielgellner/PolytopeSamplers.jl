@@ -2,8 +2,10 @@
     sample_until_converged([rng], w::Warmup, method = BilliardWalk(); target_ess = 1000,
                            max_rhat = 1.01, nchains = 4, n = 1000, max_n = 1_000_000,
                            thinning = 1)
+    sample_until_converged([rng], t::Target, method = HitAndRun(); kwargs...)
 
-Run `nchains` chains and double their length until the second half of the chains has a
+Run `nchains` chains, on the uniform distribution of a [`Warmup`](@ref) or the density of
+a [`Target`](@ref), and double their length until the second half of the chains has a
 smallest effective sample size of at least `target_ess` and a largest R̂ below `max_rhat`
 over the varying coordinates; the first half is discarded as burn-in (Gelman & Rubin
 1992). The first round keeps `n` points per chain; rounds stop once `max_n` points per
@@ -18,7 +20,7 @@ Returns a named tuple: `chains` (one matrix per chain, a point per column), `dia
 logged when the chains have not converged by `max_n`.
 """
 function sample_until_converged(
-        rng::AbstractRNG, w::Warmup, method::PolytopeSampler = BilliardWalk();
+        rng::AbstractRNG, model::Union{Warmup, Target}, method::PolytopeSampler = default_method(model);
         target_ess::Real = 1000, max_rhat::Real = 1.01, nchains::Integer = 4,
         n::Integer = 1000, max_n::Integer = 1_000_000, thinning::Integer = 1,
     )
@@ -27,8 +29,8 @@ function sample_until_converged(
     max_n >= n || throw(ArgumentError("max_n must be at least n"))
     thinning >= 1 || throw(ArgumentError("thinning must be positive, got $thinning"))
     rngs = [Xoshiro(rand(rng, UInt64)) for _ in 1:nchains]
-    states = [start_state(method, w, rngs[j]) for j in 1:nchains]
-    draws = [zeros(nvars(w.polytope), 0) for _ in 1:nchains]
+    states = [start_state(method, model, rngs[j]) for j in 1:nchains]
+    draws = [zeros(nvars(geometry(model).polytope), 0) for _ in 1:nchains]
     kept = n
     while true
         total = 2kept
@@ -47,13 +49,19 @@ function sample_until_converged(
     return
 end
 
-function sample_until_converged(w::Warmup, method::PolytopeSampler = BilliardWalk(); kwargs...)
-    return sample_until_converged(default_rng(), w, method; kwargs...)
+function sample_until_converged(
+        model::Union{Warmup, Target}, method::PolytopeSampler = default_method(model); kwargs...,
+    )
+    return sample_until_converged(default_rng(), model, method; kwargs...)
 end
 
+default_method(::Warmup) = BilliardWalk()
+default_method(::Target) = HitAndRun()
+
 # A chain state at a uniform random point of the largest ball inside the polytope
-function start_state(method::PolytopeSampler, w::Warmup, rng::AbstractRNG)
-    state = chain_state(method, w)
+function start_state(method::PolytopeSampler, model, rng::AbstractRNG)
+    w = geometry(model)
+    state = chain_state(method, model)
     k = length(state.z)
     if k > 0
         u = randn(rng, k)
