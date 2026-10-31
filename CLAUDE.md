@@ -10,24 +10,30 @@ use is sampling the interaction strengths of food webs consistent with an equili
 
 - `src/polytope.jl`: `Polytope` (`lower .<= x .<= upper`, `A * x .<= b`, `C * x .== d`),
   `isfeasible`, `isempty`, and the JuMP model of a polytope.
-- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs, finds the
-  equalities that hold over the polytope (explicit, fixed coordinates, tight inequalities),
+- `src/warmup.jl`: `warmup`, which solves the `2n` coordinate linear programs (or, with
+  `extremes = false`, one Chebyshev-center program), finds the equalities that hold over the
+  polytope (explicit, fixed coordinates, tight inequalities),
   and writes the polytope as `x = center + transform * z`, `G z ≤ h` with unit-norm rows.
   Samplers move in `z`.
 - `src/rounding.jl`: the Chebyshev center, the maximum-volume inscribed ellipsoid (adapted
-  from volesti and PolyRound) and the rounding loop.
+  from volesti and PolyRound), the ellipsoid rounding loop, and rounding from billiard-walk
+  samples (the MMCS phases, adapted from volesti).
 - `src/sampler.jl`: `PolytopeSampler`, `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack
   updates adapted from hops), the allocation-free steps and the AbstractMCMC
   interface (`step`, `bundle_samples`, `sample` for a `Polytope`). `Warmup` and `Polytope`
   are `AbstractMCMC.AbstractModel`s.
 - `src/billiard.jl`: `BilliardWalk`, the accelerated billiard walk (adapted from volesti).
+- `src/adaptive.jl`: `sample_until_converged` (chains doubled until ESS and R̂ targets)
+  and `mmcs`.
 - `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
   Carlo standard errors per coordinate via MCMCDiagnosticTools.
 - `test/correctness.jl`: checks adapted from the test suites of volesti, hopsy, hops and
   PolyRound (cube, skinny cube, simplex, vertex starts, Chebyshev centers). Add the checks
   of a reference implementation here when porting a new method.
 - `test/`: one test file per source file. Workspace project with the test-only dependencies.
-- `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub). The food
+- `examples/`: worked problems, as a workspace project (FoodWebs.jl from GitHub):
+  `foodweb_polytope.jl` builds the food web polytope, `constrained_foodweb.jl` compares the
+  samplers on one web, `foodweb_replicates.jl` runs many webs in parallel threads. The food
   web polytope will move to its own package depending on this one and FoodWebs.jl.
 - The 2018–2019 history of the original prototype is kept in git; the package was rewritten
   in 2026 for Julia 1.13.

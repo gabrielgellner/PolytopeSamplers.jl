@@ -13,7 +13,7 @@
 # - Two converged samplers agree on a random polytope.
 
 using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun,
-    MCMCSerial, Polytope, diagnostics, sample, warmup
+    MCMCSerial, Polytope, diagnostics, mmcs, sample, warmup
 using AbstractMCMC: AbstractMCMC
 using LinearAlgebra: I, dot, norm
 using Printf: @printf
@@ -266,6 +266,36 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
         report("BilliardWalk()", d, t)
         @test d.max_rhat < 1.01
         @test moments_match(d, fill(1 / 201, 201), fill(simplex_std(201), 201))
+    end
+
+    @testset "mmcs on hard geometry" begin
+        # One linear program and rounding from samples, then billiard chains to 1000 ESS
+        dim = 8
+        cross = Polytope(
+            fill(-1.0, dim), fill(1.0, dim);
+            A = [((j >> (i - 1)) & 1 == 1 ? 1.0 : -1.0) for j in 0:(2^dim - 1), i in 1:dim],
+            b = ones(2^dim),
+        )
+        sides = 10.0 .^ range(-3, 3; length = 20)
+        C = zeros(8, 16)
+        for i in 1:4, j in 1:4
+            C[i, 4(j - 1) + i] = 1
+            C[4 + j, 4(j - 1) + i] = 1
+        end
+        cases = [
+            ("box with sides 1e-3 to 1e3", Polytope(zeros(20), sides), sides ./ 2, sides ./ sqrt(12)),
+            ("cross-polytope, 256 facets", cross, zeros(dim), fill(sqrt(2 / ((dim + 1) * (dim + 2))), dim)),
+            ("Birkhoff B_4", Polytope(zeros(16), ones(16); C, d = ones(8)), fill(0.25, 16), nothing),
+            ("200-dimensional simplex", simplex(201), fill(1 / 201, 201), fill(simplex_std(201), 201)),
+        ]
+        println("mmcs")
+        for (name, P, μ, σ) in cases
+            t = @elapsed r = mmcs(Xoshiro(1), P; target_ess = 1_000)
+            d = r.diagnostics
+            @printf("  %-44s n %6d  min ESS %7.0f  max R̂ %6.3f  %6.1f s\n", name, r.n, d.min_ess, d.max_rhat, t)
+            @test r.converged
+            @test moments_match(d, μ, something(σ, fill(mean(d.std), length(μ))))
+        end
     end
 
     @testset "two samplers agree on a random polytope" begin

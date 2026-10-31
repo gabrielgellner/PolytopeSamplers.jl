@@ -115,9 +115,13 @@ chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w)
 function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
     k = size(w.transform, 2)
     m = length(w.h)
+    if method isa ACHR && k > 0 && isempty(w.zpoints)
+        throw(ArgumentError("ACHR needs the extreme points of warmup(P; extremes = true)"))
+    end
+    center = isempty(w.zpoints) ? zeros(k) : vec(mean(w.zpoints; dims = 2))
     return HitAndRunState(
-        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m),
-        vec(mean(w.zpoints; dims = 2)), size(w.points, 2), 0, 1,
+        method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), center,
+        size(w.points, 2), 0, 1,
     )
 end
 
@@ -271,7 +275,8 @@ end
 """
     sample([rng], w::Warmup, method, n; discard_initial = 0, thinning = 1, progress = true)
     sample([rng], w::Warmup, method, MCMCThreads(), n, nchains; kwargs...)
-    sample([rng], P::Polytope, method, args...; rounding = true, optimizer = HiGHS.Optimizer, kwargs...)
+    sample([rng], P::Polytope, method, args...; extremes = true, rounding = :ellipsoid,
+           optimizer = HiGHS.Optimizer, kwargs...)
 
 Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
 matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
@@ -281,7 +286,8 @@ and return a vector of matrices. `method` is [`CoordinateHitAndRun`](@ref),
 Every chain starts at the warmup center, discards `discard_initial` steps and then keeps
 every `thinning`-th point. Consecutive points are correlated; check the effective sample
 size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
-[`warmup`](@ref) once for all chains, with rounding unless `rounding = false`.
+[`warmup`](@ref) once for all chains with the given `extremes` and `rounding`. To run
+chains until they converge, see [`sample_until_converged`](@ref).
 
 This is `AbstractMCMC.sample` (also `StatsBase.sample`); its other keyword arguments, such
 as `initial_state` and `callback`, apply.
@@ -296,15 +302,18 @@ diagnostics(chains)
 """
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::PolytopeSampler, n::Integer;
-        rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
+        extremes::Bool = true, rounding::Union{Bool, Symbol} = :ellipsoid,
+        optimizer = HiGHS.Optimizer, kwargs...,
     )
-    return sample(rng, warmup(P; rounding, optimizer), method, n; kwargs...)
+    return sample(rng, warmup(rng, P; extremes, rounding, optimizer), method, n; kwargs...)
 end
 
 function AbstractMCMC.sample(
         rng::AbstractRNG, P::Polytope, method::PolytopeSampler,
         ensemble::AbstractMCMCEnsemble, n::Integer, nchains::Integer;
-        rounding::Bool = true, optimizer = HiGHS.Optimizer, kwargs...,
+        extremes::Bool = true, rounding::Union{Bool, Symbol} = :ellipsoid,
+        optimizer = HiGHS.Optimizer, kwargs...,
     )
-    return sample(rng, warmup(P; rounding, optimizer), method, ensemble, n, nchains; kwargs...)
+    w = warmup(rng, P; extremes, rounding, optimizer)
+    return sample(rng, w, method, ensemble, n, nchains; kwargs...)
 end

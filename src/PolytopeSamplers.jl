@@ -3,13 +3,14 @@ module PolytopeSamplers
 using AbstractMCMC: AbstractMCMC, AbstractMCMCEnsemble, AbstractModel, AbstractSampler,
     MCMCDistributed, MCMCSerial, MCMCThreads, sample
 using HiGHS: HiGHS
-using JuMP: @constraint, @objective, @variable, INFEASIBLE, INFEASIBLE_OR_UNBOUNDED,
+using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
+    INFEASIBLE_OR_UNBOUNDED,
     MAX_SENSE, MIN_SENSE, Model,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
-using LinearAlgebra: I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
+using LinearAlgebra: Diagonal, I, Symmetric, cholesky, diag, dot, eigvals, issuccess, lu!, mul!, norm,
     normalize!, nullspace, pinv, svd
-using Random: AbstractRNG, randexp, randn!
+using Random: AbstractRNG, Xoshiro, default_rng, randexp, randn!
 using MCMCDiagnosticTools: ess_rhat, mcse
 using Statistics: mean, std
 
@@ -29,5 +30,8 @@ public AbstractHitAndRun, PolytopeSampler
 
 include("diagnostics.jl")
 export diagnostics
+
+include("adaptive.jl")
+export mmcs, sample_until_converged
 
 end
