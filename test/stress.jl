@@ -12,7 +12,8 @@
 #   equalities, many facets (cross-polytope), equality polytopes (Birkhoff), 200 dimensions.
 # - Two converged samplers agree on a random polytope.
 
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC,
+    DikinWalk,
     HitAndRun, VaidyaWalk,
     MCMCSerial, Polytope, diagnostics, mmcs, sample, warmup
 using AbstractMCMC: AbstractMCMC
@@ -26,7 +27,7 @@ AbstractMCMC.setprogress!(false)
 
 const all_methods = (
     HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
-    DikinWalk(), VaidyaWalk(),
+    DikinWalk(), VaidyaWalk(), CRHMC(),
 )
 
 # Every mean within five Monte Carlo standard errors of the truth, every standard deviation
