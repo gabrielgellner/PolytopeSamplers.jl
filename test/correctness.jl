@@ -12,12 +12,13 @@
 # - PolyRound, PolyRound/unit_tests.py (commit 6d3aee7, MIT): the Chebyshev center of a
 #   symmetric and a cut cube, and a polytope that the equalities reduce to a point.
 
-using PolytopeSamplers: PolytopeSamplers, ACHR, CoordinateHitAndRun, HitAndRun, MCMCSerial,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun,
+    MCMCSerial,
     Polytope, diagnostics, sample, warmup
 using LinearAlgebra: I, svdvals
 using Random: Xoshiro
 
-const all_methods = (HitAndRun(), ACHR(), CoordinateHitAndRun())
+const all_methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
 
 # Four chains and their diagnostics
 function run_chains(w, method; n = 2_000, thinning = 5, seed = 1)
@@ -79,7 +80,7 @@ skinny_cube(d) = Polytope([-100.0; fill(-1.0, d - 1)], [100.0; fill(1.0, d - 1)]
         P = Polytope(fill(-1.0, 3), fill(1.0, 3))
         w = warmup(P)
         for j in axes(w.zpoints, 2)
-            state = PolytopeSamplers.HitAndRunState(m, w)
+            state = PolytopeSamplers.chain_state(m, w)
             state.z .= w.zpoints[:, j]
             X = sample(Xoshiro(j), w, m, 100; initial_state = state)
             @test all(x -> x in P, eachcol(X))

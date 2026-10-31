@@ -1,7 +1,8 @@
 # PolytopeSamplers.jl
 
-Uniform sampling of convex polytopes by Markov chain Monte Carlo: coordinate hit-and-run with
-rounding (CHRR), hit-and-run and artificial centering hit-and-run (ACHR). Linear programs for the warmup are solved with
+Uniform sampling of convex polytopes by Markov chain Monte Carlo: the billiard walk,
+coordinate hit-and-run with rounding (CHRR), hit-and-run and artificial centering hit-and-run
+(ACHR). Linear programs for the warmup are solved with
 [HiGHS](https://highs.dev). The package was called HRMCMC.jl until 2026.
 
 ```julia
@@ -25,22 +26,32 @@ using PolytopeSamplers, Random
 # The triangle x ≥ 0, x1 + x2 ≤ 1
 P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])
 w = warmup(P)
-X = sample(Xoshiro(1), w, CoordinateHitAndRun(), 10_000; discard_initial = 1_000)
+X = sample(Xoshiro(1), w, BilliardWalk(), 10_000; discard_initial = 1_000)
 
-chains = sample(Xoshiro(1), w, CoordinateHitAndRun(), MCMCThreads(), 2_000, 4)
+chains = sample(Xoshiro(1), w, BilliardWalk(), MCMCThreads(), 2_000, 4)
 d = diagnostics(chains)
 d.min_ess, d.max_rhat     # aim for max_rhat < 1.01
 d.mean, d.mcse_mean       # estimates with Monte Carlo standard errors
 ```
 
+- `BilliardWalk()` (Gryazina & Polyak 2014, in the accelerated form of Chalkis et al. 2021)
+  moves along a random direction for a random length, reflecting off the facets. It needs a
+  few steps per effective sample in every dimension tested (10 to 200) and is the
+  recommended method.
 - `CoordinateHitAndRun()` on the rounded warmup is CHRR (Haraldsdóttir et al. 2017), the
-  COBRA Toolbox default and the recommended method. Each step makes one coordinate move per
-  dimension at `O(m)` each. `HitAndRun()` draws directions uniformly from the sphere.
-  `ACHR()` draws them from the running mean to a warmup point and is only approximately
-  Markov.
-- On the 63-dimensional food web polytope of the example, CHRR reaches R̂ 1.005 with about
-  2000 effective samples per second; unrounded hit-and-run, the method of the 2019 version,
-  reaches R̂ 2 with 17.
+  COBRA Toolbox default. Each step makes one coordinate move per dimension at `O(m)` each;
+  moves per effective sample grow as the square of the dimension.
+- `HitAndRun()` draws directions uniformly from the sphere. `ACHR()` draws them from the
+  running mean to a warmup point; it is only approximately Markov and the slowest method on
+  rounded polytopes.
+
+On the 63-dimensional food web polytope of the example (four chains of 2000 points):
+
+| Sampler | min ESS | max R̂ | ESS/s |
+|---|---|---|---|
+| HitAndRun, unrounded (the 2019 version) | 19 | 2.03 | 17 |
+| CoordinateHitAndRun | 1464 | 1.005 | 2210 |
+| BilliardWalk | 7262 | 1.001 | 6690 |
 - Equalities can come from `C * x .== d`, from coordinates with `lower[i] == upper[i]`, or
   from inequalities that hold with equality over the whole polytope. `warmup` finds all
   three and keeps chains on the slice they define.
@@ -79,6 +90,7 @@ Tasks are run with [just](https://github.com/casey/just):
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
+just stress     # convergence stress tests and mixing-cost scaling (about 3 minutes)
 ```
 
 ## License

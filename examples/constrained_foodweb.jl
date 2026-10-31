@@ -17,7 +17,7 @@
 
 using FoodWebs: basal_species, generalized_cascade_network, spectral_abscissa, top_species,
     trophic_levels
-using PolytopeSamplers: ACHR, CoordinateHitAndRun, HitAndRun, MCMCThreads, Polytope, diagnostics,
+using PolytopeSamplers: ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun, MCMCThreads, Polytope, diagnostics,
     sample, warmup
 using Random: Xoshiro
 using Statistics: mean
@@ -111,6 +111,7 @@ let rng = Xoshiro(2026), S = 15
             ("HitAndRun", rounded, HitAndRun()),
             ("ACHR", rounded, ACHR()),
             ("CoordinateHitAndRun", rounded, CoordinateHitAndRun()),
+            ("BilliardWalk", rounded, BilliardWalk()),
         ]
         for (name, w, method) in runs
             t = @elapsed chains = sample(

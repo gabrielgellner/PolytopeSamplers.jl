@@ -1,4 +1,4 @@
-using PolytopeSamplers: PolytopeSamplers, ACHR, CoordinateHitAndRun, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
 using Random: Xoshiro
@@ -17,7 +17,7 @@ function pentagon_moments(rng, n)
     return vec(mean(Y; dims = 2)), vec(var(Y; dims = 2))
 end
 
-const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun())
+const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
 
 @testset "sample" begin
     @testset "output shape ($m)" for m in methods
@@ -117,8 +117,25 @@ const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun())
         @test X2 ≈ X1
     end
 
+    @testset "BilliardWalk options" begin
+        @test_throws ArgumentError BilliardWalk(trajectory_length = 0.0)
+        @test_throws ArgumentError BilliardWalk(max_reflections = 0)
+        @test sprint(show, BilliardWalk()) == "BilliardWalk()"
+        @test sprint(show, BilliardWalk(trajectory_length = 2.0, max_reflections = 5)) ==
+            "BilliardWalk(trajectory_length = 2.0, max_reflections = 5)"
+        w = warmup(pentagon)
+        c = PolytopeSamplers.chain_state(BilliardWalk(), w)
+        @test c.trajectory_length ≈ 2 * sqrt(2) * w.radius
+        @test c.max_reflections == 2000
+        # Long trajectories with one reflection allowed are mostly abandoned: the chain stays
+        # put for those steps and every point stays in the polytope
+        X = sample(Xoshiro(1), w, BilliardWalk(trajectory_length = 50.0, max_reflections = 1), 200)
+        @test all(x -> x in pentagon, eachcol(X))
+        @test count(j -> X[:, j] == X[:, j - 1], 2:200) > 100
+    end
+
     @testset "steps are type stable and allocation free ($m)" for m in methods
-        c = PolytopeSamplers.HitAndRunState(m, warmup(pentagon))
+        c = PolytopeSamplers.chain_state(m, warmup(pentagon))
         rng = Xoshiro(1)
         @test_opt PolytopeSamplers.step!(rng, c)
         @test isempty(check_allocs(PolytopeSamplers.step!, (typeof(rng), typeof(c))))

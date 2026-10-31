@@ -13,6 +13,7 @@ direction in which the polytope has width and the rows of `G` have unit norm.
   when not rounded.
 - `G`, `h`: the constraints of `P` in `z`, leaving out those that are constant on the slice.
 - `zpoints`: `points` in `z` coordinates.
+- `radius`: the radius of the largest ball in `{z : G z ≤ h}`, near 1 when rounded.
 - `rounded`: whether `transform` rounds the polytope.
 """
 struct Warmup <: AbstractModel
@@ -23,6 +24,7 @@ struct Warmup <: AbstractModel
     G::Matrix{Float64}
     h::Vector{Float64}
     zpoints::Matrix{Float64}
+    radius::Float64
     rounded::Bool
 end
 
@@ -83,7 +85,8 @@ function warmup(P::Polytope; rounding::Bool = true, optimizer = HiGHS.Optimizer,
         round_polytope!(center, T, G, h; optimizer)
     end
     zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
-    return Warmup(P, points, center, T, G, h, zpoints, rounding)
+    radius = isempty(T) ? 0.0 : last(chebyshev_center(G, h, optimizer))
+    return Warmup(P, points, center, T, G, h, zpoints, radius, rounding)
 end
 
 # The bounds and inequalities of `P` as `G z ≤ h` for `x = center + T z`, with unit-norm rows.
