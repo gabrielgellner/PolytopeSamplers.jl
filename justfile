@@ -143,4 +143,4 @@ release-notes VERSION:
 # Run examples/NAME.jl (e.g. just example constrained_foodweb)
 [group('examples')]
 example NAME:
-    {{ julia }} --project=examples examples/{{ NAME }}.jl
+    {{ julia }} --threads=auto --project=examples examples/{{ NAME }}.jl

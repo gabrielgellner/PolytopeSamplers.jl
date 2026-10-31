@@ -8,7 +8,7 @@ The starting state of a hit-and-run chain on a polytope, built by [`warmup`](@re
 - `center`: the mean of `points`, where chains start.
 - `basis`: orthonormal columns spanning the directions in which the polytope has width.
 """
-struct Warmup
+struct Warmup <: AbstractModel
     polytope::Polytope
     points::Matrix{Float64}
     center::Vector{Float64}
@@ -25,7 +25,7 @@ end
     warmup(P::Polytope; optimizer = HiGHS.Optimizer, atol = 1e-6)
 
 Solve `2n` linear programs, minimizing and maximizing each of the `n` coordinates over `P`,
-and return a [`Warmup`](@ref) for [`hr_sample`](@ref).
+and return a [`Warmup`](@ref) to [`sample`](@ref) from.
 
 The extreme points also locate the constraints that hold with equality over all of `P`: a
 coordinate whose range is within `atol` of zero, or an inequality whose slack is within

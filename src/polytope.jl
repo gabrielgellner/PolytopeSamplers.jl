@@ -10,7 +10,7 @@ coordinate with `lower[i] == upper[i]` is fixed at that value.
 
 `isempty(P)` solves a linear program to check whether `P` has any points.
 """
-struct Polytope
+struct Polytope <: AbstractModel
     lower::Vector{Float64}
     upper::Vector{Float64}
     A::Matrix{Float64}

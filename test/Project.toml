@@ -1,6 +1,7 @@
 [deps]
 AllocCheck = "9b6a8646-10ed-4001-bbdc-1d2f46dfbb1a"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+AbstractMCMC = "80f14c24-f653-4e6a-9b94-39d6b0f70001"
 ExplicitImports = "7d51a73a-1435-4ff3-83d9-f097790105c7"
 PolytopeSamplers = "23957194-1ca4-53c5-ae50-e0ed682cc5dc"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"

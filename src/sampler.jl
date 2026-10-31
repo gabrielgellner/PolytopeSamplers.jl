@@ -4,7 +4,7 @@
 Supertype of the hit-and-run methods, which differ in how they choose a direction:
 [`HitAndRun`](@ref) and [`ACHR`](@ref).
 """
-abstract type AbstractHitAndRun end
+abstract type AbstractHitAndRun <: AbstractSampler end
 
 """
     HitAndRun()
@@ -34,7 +34,7 @@ struct ACHR <: AbstractHitAndRun end
 const ZERO_TOL = 1.0e-12
 
 # The state of one chain, with buffers so that a step does not allocate
-mutable struct Chain{M <: AbstractHitAndRun}
+mutable struct HitAndRunState{M <: AbstractHitAndRun}
     const method::M
     const warmup::Warmup
     const x::Vector{Float64}
@@ -46,17 +46,17 @@ mutable struct Chain{M <: AbstractHitAndRun}
     n_seen::Int # points in the running mean
 end
 
-function Chain(method::AbstractHitAndRun, w::Warmup)
+function HitAndRunState(method::AbstractHitAndRun, w::Warmup)
     n, k = size(w.basis)
     m = length(w.polytope.b)
-    return Chain(
+    return HitAndRunState(
         method, w, copy(w.center), zeros(n), zeros(k), zeros(m), zeros(m), copy(w.center),
         size(w.points, 2),
     )
 end
 
 # Set `c.u` to a unit direction; return false when there is none, as for a single point
-function direction!(rng::AbstractRNG, c::Chain{HitAndRun})
+function direction!(rng::AbstractRNG, c::HitAndRunState{HitAndRun})
     isempty(c.z) && return false
     randn!(rng, c.z)
     mul!(c.u, c.warmup.basis, c.z)
@@ -64,7 +64,7 @@ function direction!(rng::AbstractRNG, c::Chain{HitAndRun})
     return true
 end
 
-function direction!(rng::AbstractRNG, c::Chain{ACHR})
+function direction!(rng::AbstractRNG, c::HitAndRunState{ACHR})
     B = c.warmup.basis
     isempty(c.z) && return false
     j = rand(rng, axes(c.warmup.points, 2))
@@ -93,7 +93,7 @@ end
 
 # The interval of `t` with `x + t * u` in the polytope. Slacks are clamped at zero so that a
 # point that rounding has put just outside a constraint still gets an interval holding zero.
-function chord(c::Chain)
+function chord(c::HitAndRunState)
     P = c.warmup.polytope
     x, u = c.x, c.u
     tmin, tmax = -Inf, Inf
@@ -111,7 +111,7 @@ end
 
 # One hit-and-run step: move `c.x` to a uniform point on the chord through it along a new
 # direction, and update the running mean
-function step!(rng::AbstractRNG, c::Chain)
+function step!(rng::AbstractRNG, c::HitAndRunState)
     if direction!(rng, c)
         tmin, tmax = chord(c)
         isfinite(tmin) && isfinite(tmax) ||
@@ -128,47 +128,64 @@ function step!(rng::AbstractRNG, c::Chain)
     return c
 end
 
+# AbstractMCMC interface. The first step starts from the warmup center.
+function AbstractMCMC.step(rng::AbstractRNG, w::Warmup, method::AbstractHitAndRun; kwargs...)
+    c = step!(rng, HitAndRunState(method, w))
+    return copy(c.x), c
+end
+
+function AbstractMCMC.step(
+        rng::AbstractRNG, ::Warmup, ::AbstractHitAndRun, c::HitAndRunState; kwargs...,
+    )
+    step!(rng, c)
+    return copy(c.x), c
+end
+
+# Return the points of a chain as the columns of a matrix, unless another `chain_type` is
+# asked for
+function AbstractMCMC.bundle_samples(
+        samples::Vector{Vector{Float64}}, ::Warmup, ::AbstractHitAndRun, state, ::Type{Any};
+        kwargs...,
+    )
+    return reduce(hcat, samples; init = zeros(length(state.x), 0))
+end
+
 """
-    hr_sample([rng], P::Polytope, n; optimizer = HiGHS.Optimizer, kwargs...)
-    hr_sample([rng], w::Warmup, n; method = HitAndRun(), burn_in = n, thin = 1)
+    sample([rng], w::Warmup, method, n; discard_initial = 0, thinning = 1, progress = true)
+    sample([rng], w::Warmup, method, MCMCThreads(), n, nchains; kwargs...)
+    sample([rng], P::Polytope, method, args...; optimizer = HiGHS.Optimizer, kwargs...)
 
-Draw `n` points from the uniform distribution on a polytope by hit-and-run, returned as the
-columns of a matrix. Pass a [`Warmup`](@ref) from [`warmup`](@ref) to reuse its linear
-programs across chains; given a [`Polytope`](@ref), `hr_sample` calls `warmup` first.
+Draw `n` points from the uniform distribution on a polytope, returned as the columns of a
+matrix; with `MCMCThreads()`, `MCMCSerial()` or `MCMCDistributed()`, draw `nchains` chains
+and return a vector of matrices. `method` is [`HitAndRun`](@ref) or [`ACHR`](@ref).
 
-The chain starts at the warmup center, discards `burn_in` steps and then keeps every
-`thin`-th point, for `burn_in + n * thin` steps in total. Consecutive points are correlated;
-raise `thin` to reduce the correlation. `method` is [`HitAndRun`](@ref) or [`ACHR`](@ref).
+Every chain starts at the warmup center, discards `discard_initial` steps and then keeps
+every `thinning`-th point. Consecutive points are correlated; check the effective sample
+size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
+[`warmup`](@ref) once for all chains.
+
+This is `AbstractMCMC.sample` (also `StatsBase.sample`); its other keyword arguments, such
+as `initial_state` and `callback`, apply.
 
 # Examples
 ```julia
 P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])  # a triangle
-X = hr_sample(Xoshiro(1), P, 1000; thin = 10)
+X = sample(Xoshiro(1), P, HitAndRun(), 1000; discard_initial = 100, thinning = 10)
+chains = sample(Xoshiro(1), P, ACHR(), MCMCThreads(), 1000, 4; progress = false)
+diagnostics(chains)
 ```
 """
-function hr_sample(
-        rng::AbstractRNG, w::Warmup, n::Integer;
-        method::AbstractHitAndRun = HitAndRun(), burn_in::Integer = n, thin::Integer = 1,
+function AbstractMCMC.sample(
+        rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun, n::Integer;
+        optimizer = HiGHS.Optimizer, kwargs...,
     )
-    n >= 0 || throw(ArgumentError("n must be non-negative, got $n"))
-    burn_in >= 0 || throw(ArgumentError("burn_in must be non-negative, got $burn_in"))
-    thin >= 1 || throw(ArgumentError("thin must be positive, got $thin"))
-    c = Chain(method, w)
-    for _ in 1:burn_in
-        step!(rng, c)
-    end
-    X = Matrix{Float64}(undef, length(c.x), n)
-    for j in 1:n
-        for _ in 1:thin
-            step!(rng, c)
-        end
-        X[:, j] = c.x
-    end
-    return X
+    return sample(rng, warmup(P; optimizer), method, n; kwargs...)
 end
 
-function hr_sample(rng::AbstractRNG, P::Polytope, n::Integer; optimizer = HiGHS.Optimizer, kwargs...)
-    return hr_sample(rng, warmup(P; optimizer), n; kwargs...)
+function AbstractMCMC.sample(
+        rng::AbstractRNG, P::Polytope, method::AbstractHitAndRun,
+        ensemble::AbstractMCMCEnsemble, n::Integer, nchains::Integer;
+        optimizer = HiGHS.Optimizer, kwargs...,
+    )
+    return sample(rng, warmup(P; optimizer), method, ensemble, n, nchains; kwargs...)
 end
-
-hr_sample(P::Union{Polytope, Warmup}, n::Integer; kwargs...) = hr_sample(default_rng(), P, n; kwargs...)
