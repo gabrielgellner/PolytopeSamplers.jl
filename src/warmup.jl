@@ -17,8 +17,9 @@ direction in which the polytope has width and the rows of `G` have unit norm.
 
 - `polytope`: the [`Polytope`](@ref) sampled.
 - `points`: the distinct extreme points of each coordinate, one per column.
-- `center`: where chains start (`z = 0`); the center of the last inscribed ellipsoid when
-  rounded, the mean of `points` otherwise.
+- `center`: the point `z = 0`, where [`sample`](@ref) starts chains: the center of the last
+  inscribed ellipsoid when rounded, otherwise the center of the largest inscribed ball, or
+  the mean of `points` with `extremes = true`.
 - `transform`: the `n × k` matrix taking `z` to `x - center`. Its columns are orthonormal
   when not rounded.
 - `G`, `h`: the constraints of `P` in `z`, leaving out those that are constant on the slice.
@@ -81,9 +82,10 @@ function extreme_zpoints(w::Warmup)
 end
 
 function Base.show(io::IO, w::Warmup)
-    print(io, "Warmup with ", size(w.points, 2), " points on a ", size(w.transform, 2))
-    print(io, "-dimensional slice of a ", nvars(w.polytope), "-variable polytope")
+    print(io, "Warmup on a ", size(w.transform, 2), "-dimensional slice of a ")
+    print(io, nvars(w.polytope), "-variable polytope")
     w.rounded && print(io, ", rounded")
+    isempty(w.points) || print(io, ", with ", size(w.points, 2), " extreme points")
     return
 end
 
@@ -104,9 +106,9 @@ With `extremes = true`, solve `2n` linear programs, minimizing and maximizing ea
 of `P`: a coordinate whose range is within `atol` of zero, or an inequality whose slack is
 within `atol` of zero at every extreme point. Chains move only in the directions that keep
 these equalities and `C * x .== d`. The `2n` programs cost far more for large `n`: 58 s for
-`n = 200` with 1000 constraints, against 1.3 s for the whole warmup with `extremes =
-false`. [`ACHR`](@ref) uses the extreme points, and solves the `2n` programs on first use
-when the warmup was built without them.
+`n = 200` with 1000 constraints, against 1.3 s for the whole warmup with
+`extremes = false`. [`ACHR`](@ref) uses the extreme points, and solves the `2n` programs on
+first use when the warmup was built without them.
 
 `rounding` changes coordinates so that the polytope is close to round, which makes every
 sampler take long steps in thin directions:
@@ -119,9 +121,8 @@ sampler take long steps in thin directions:
 - `:none` (or `false`).
 
 Throws an `ArgumentError` when `P` is empty or unbounded; with `extremes = false` one more
-linear program checks boundedness. `optimizer` is any JuMP
-optimizer for linear programs; each call builds its own model, so separate tasks may call
-`warmup` at the same time.
+linear program checks boundedness. `optimizer` is any JuMP optimizer for linear programs;
+each call builds its own model, so separate tasks may call `warmup` at the same time.
 """
 function warmup(
         rng::AbstractRNG, P::Polytope; extremes::Bool = false,

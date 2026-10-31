@@ -1,10 +1,12 @@
 """
     PolytopeSampler
 
-Supertype of the samplers: the hit-and-run methods ([`AbstractHitAndRun`](@ref)) and
-[`BilliardWalk`](@ref). All of them move in the coordinates of a [`Warmup`](@ref), which are
-rounded by default. A sampler `S` implements `chain_state(S, w)`, returning a state with
-fields `warmup` and `x` (the current point), and `step!(rng, state)`.
+Supertype of the samplers: [`BilliardWalk`](@ref), the hit-and-run methods
+([`AbstractHitAndRun`](@ref)), [`DikinWalk`](@ref), [`VaidyaWalk`](@ref) and
+[`CRHMC`](@ref). All of them move in the coordinates of a [`Warmup`](@ref), rounded by
+default. A sampler `S` implements `chain_state(S, model)` for a `Warmup` (and, if it samples
+densities, a [`Target`](@ref)), returning a state with fields `warmup`, `z` and `x` (the
+current point), and `step!(rng, state)`.
 """
 abstract type PolytopeSampler <: AbstractSampler end
 
@@ -19,9 +21,11 @@ abstract type AbstractHitAndRun <: PolytopeSampler end
 """
     HitAndRun()
 
-Hit-and-run with directions drawn uniformly from the unit sphere in the coordinates of the
-warmup (Smith 1984). The chain is Markov and its stationary distribution is uniform on the
-polytope. Each step costs `O(mk)` for `m` constraints in `k` dimensions.
+Hit-and-run (Smith 1984): each step draws a direction uniformly from the unit sphere in the
+coordinates of the warmup and moves to a uniform point on the chord of the polytope along
+it. The chain is reversible, with the uniform distribution as its stationary distribution.
+A step costs `O(mk)` for `m` constraints in `k` dimensions. For a [`Target`](@ref), the
+point on the chord is drawn from the density along it by slice sampling.
 
 Smith, R. L. (1984). Efficient Monte Carlo procedures for generating points uniformly
 distributed over bounded regions. Operations Research 32, 1296–1308.
@@ -34,12 +38,13 @@ struct HitAndRun <: AbstractHitAndRun end
 
 Artificial centering hit-and-run (Kaufman & Smith 1998), as in the COBRA Toolbox: each
 direction runs from the running mean of the chain to a random extreme point of a
-coordinate. A warmup built with `extremes = false` (the default) solves the `2n` linear
-programs for these points when the first ACHR chain starts, and its chains share them. Directions
-follow the shape of the polytope, so long thin polytopes mix faster than with
-[`HitAndRun`](@ref) when the warmup is not rounded. The direction depends on the history
-through the mean, so the chain is only approximately Markov; its distribution approaches
-uniform as the mean settles.
+coordinate, so directions follow the shape of the polytope. The direction depends on the
+history through the mean, so the chain is only approximately Markov, and its distribution
+approaches uniform as the mean settles; on rounded polytopes it is the slowest method here.
+It samples only the uniform distribution.
+
+A warmup built with `extremes = false` (the default) solves the `2n` linear programs for
+the extreme points when the first ACHR chain starts, and its chains share them.
 
 Kaufman, D. E. & Smith, R. L. (1998). Direction choice for accelerated convergence in
 hit-and-run sampling. Operations Research 46, 84–95. <https://doi.org/10.1287/opre.46.1.84>
@@ -50,20 +55,22 @@ struct ACHR <: AbstractHitAndRun end
     CoordinateHitAndRun(; moves = nothing, scan = :cyclic)
 
 Coordinate hit-and-run: each move resamples one coordinate of the warmup uniformly on its
-chord. With `scan = :cyclic` (the default, as in hopsy) the coordinates are taken in turn;
-with `scan = :random` each is chosen at random and the chain is reversible. Both keep the
-uniform distribution stationary; the cyclic scan gave 1.3 to 1.8 times the effective
-samples per move on the polytopes of the test suite. On a rounded warmup this is CHRR (Haraldsdóttir et al.
-2017), the default sampler of the COBRA Toolbox. A move costs `O(m)` for `m` constraints,
-as the slacks are updated in place; each step of the chain makes `moves` moves (default:
-the dimension `k` of the warmup), so a step costs about as much as one of
-[`HitAndRun`](@ref). The chain is Markov, with the uniform distribution as its stationary distribution (with
-either scan). Coordinate moves per effective sample grow
-as `k²`.
+chord. On a rounded warmup this is CHRR (Haraldsdóttir et al. 2017), the default sampler of
+the COBRA Toolbox. For a [`Target`](@ref), each move draws from the density along the chord
+by slice sampling.
+
+With `scan = :cyclic` (the default, as in hopsy) the coordinates are taken in turn; with
+`scan = :random` each is chosen at random and the chain is reversible. Both keep the target
+stationary; the cyclic scan gave 1.3 to 1.8 times the effective samples per move on the
+polytopes of the test suite.
+
+A move costs `O(m)` for `m` constraints, as the slacks are updated in place, and each step
+of the chain makes `moves` moves (default: the dimension `k` of the warmup), so a step costs
+about as much as one of [`HitAndRun`](@ref). Moves per effective sample grow as `k²`.
 
 A chain started exactly at a vertex never moves when no coordinate axis points into the
-polytope there, as on a simplex; chains started by `sample` begin at the interior center.
-[`BilliardWalk`](@ref) leaves corners quickly and needs fewer steps per effective sample.
+polytope there, as on a simplex; [`sample`](@ref) starts chains at the center and
+[`sample_until_converged`](@ref) inside the largest inscribed ball, away from vertices.
 
 Haraldsdóttir, H. S., Cousins, B., Thiele, I., Fleming, R. M. T. & Vempala, S. (2017).
 CHRR: coordinate hit-and-run with rounding for uniform sampling of constraint-based models.

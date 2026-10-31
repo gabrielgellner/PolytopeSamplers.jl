@@ -4,10 +4,13 @@
 The Dikin walk (Kannan & Narayanan 2012): each step proposes a Gaussian move shaped by the
 Dikin ellipsoid of the log barrier at the current point, `N(z, (r²/k) H(z)⁻¹)` with
 `H(z) = Gᵀ S⁻² G` for slacks `S`, and accepts it by a Metropolis filter, so the chain has the
-uniform distribution as its stationary distribution. The ellipsoid follows the local shape
-of the polytope, so the walk needs no rounding and steps well near corners; a step costs
-`O(mk²)` for `m` constraints in `k` dimensions, and moves per effective sample grow as
-`O(mk)`.
+uniform distribution as its stationary distribution, or the density of a [`Target`](@ref),
+whose log density joins the Metropolis ratio. The walk is affine-invariant, so it needs no
+rounding, and it has a mixing bound of `O(mk)` steps from a warm start for `m` constraints
+in `k` dimensions, whatever the shape of the polytope. A step costs `O(mk²)`. On rounded
+polytopes it needed 340 to 490 steps per effective sample, about 100 times the
+[`BilliardWalk`](@ref); use it as an independent check, or when rounding is not
+available.
 
 Kannan, R. & Narayanan, H. (2012). Random walks on polytopes and an affine interior point
 method for linear programming. Mathematics of Operations Research 37, 1–20.

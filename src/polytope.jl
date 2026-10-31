@@ -8,7 +8,20 @@ coordinate with `lower[i] == upper[i]` is fixed at that value.
 `A`, `b`, `C` and `d` default to no constraints. Constraints of the form `L * x .>= f` are
 `A = -L, b = -f`.
 
-`isempty(P)` solves a linear program to check whether `P` has any points.
+`isempty(P)` solves a linear program to check whether `P` has any points, and `x in P`
+checks a point (see [`isfeasible`](@ref)).
+
+# Examples
+```jldoctest
+julia> P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])  # a triangle
+Polytope in 2 variables with 1 inequalities and 0 equalities
+
+julia> [0.2, 0.3] in P
+true
+
+julia> isempty(P)
+false
+```
 """
 struct Polytope <: AbstractModel
     lower::Vector{Float64}
