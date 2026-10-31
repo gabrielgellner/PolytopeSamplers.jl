@@ -1,260 +1,174 @@
-using LinearAlgebra
-using Random
-using Distributions
-using JuMP
-using GLPK
-using RecursiveArrayTools
+"""
+    AbstractHitAndRun
 
-abstract type AbstractMatrixConstraintProblem end
-# This needs fields for E * α + r = 0:
-# biomass (x) and growth (r)
-# - x::Vector{Float64}
-# - r::Vector{Float64}
-# box constraints
-# - lower::Vector{Float64}
-# - upper::Vector{Float64}
-# equality coefficients
-# - E::Matrix{Float64}
-# inequality M α >= f
-# - L::Matrix{Float64}
-# - f::Vector{Float64}
+Supertype of the hit-and-run methods, which differ in how they choose a direction:
+[`HitAndRun`](@ref) and [`ACHR`](@ref).
+"""
+abstract type AbstractHitAndRun end
 
-mutable struct HRSampler{T <: AbstractMatrixConstraintProblem}
-    # Problem information
-    prob::T
-    Z::Matrix{Float64} # nullspace of prob.E
-    # Chain initialization
-    warmup::Vector{Vector{Float64}}
-    center::Vector{Float64}
-    n_warmup::Int
-    n_samples::Int # how many samples have already been generated, used in center calculations
-    prev::Vector{Float64}
-    # Numerical checks
-    feasibility_tol::Float64 # 1e-15 is a good start
-    bounds_tol::Float64
-    feasible::Bool
-    RNG::Random.MersenneTwister
+"""
+    HitAndRun()
+
+Hit-and-run with directions drawn uniformly from the unit sphere in the span of the
+polytope (Smith 1984). The chain is Markov and its stationary distribution is uniform on
+the polytope.
+"""
+struct HitAndRun <: AbstractHitAndRun end
+
+"""
+    ACHR()
+
+Artificial centering hit-and-run (Kaufman & Smith 1998), as in the COBRA Toolbox: each
+direction runs from the running mean of the chain to a random warmup point. Directions
+follow the shape of the polytope, so long thin polytopes mix faster than with
+[`HitAndRun`](@ref). The direction depends on the history through the mean, so the chain
+is only approximately Markov; its distribution approaches uniform as the mean settles.
+
+Kaufman, D. E. & Smith, R. L. (1998). Direction choice for accelerated convergence in
+hit-and-run sampling. Operations Research 46, 84–95. <https://doi.org/10.1287/opre.46.1.84>
+"""
+struct ACHR <: AbstractHitAndRun end
+
+# Coefficients below this are treated as zero: a direction component this small moves a
+# fixed coordinate or an equality-tight inequality by rounding error only.
+const ZERO_TOL = 1.0e-12
+
+# The state of one chain, with buffers so that a step does not allocate
+mutable struct Chain{M <: AbstractHitAndRun}
+    const method::M
+    const warmup::Warmup
+    const x::Vector{Float64}
+    const u::Vector{Float64} # direction
+    const z::Vector{Float64} # direction in basis coordinates
+    const Ax::Vector{Float64}
+    const Au::Vector{Float64}
+    const center::Vector{Float64} # running mean, for ACHR
+    n_seen::Int # points in the running mean
 end
 
-mutable struct ACHRSampler{T <: AbstractMatrixConstraintProblem}
-    # Problem information
-    prob::T
-    Z::Matrix{Float64} # nullspace of prob.E
-    # Chain initialization
-    warmup::Vector{Vector{Float64}}
-    center::Vector{Float64}
-    n_warmup::Int
-    n_samples::Int # how many samples have already been generated, used in center calculations
-    prev::Vector{Float64}
-    # Numerical checks
-    feasibility_tol::Float64 # 1e-15 is a good start
-    bounds_tol::Float64
-    feasible::Bool
-    RNG::Random.MersenneTwister
+function Chain(method::AbstractHitAndRun, w::Warmup)
+    n, k = size(w.basis)
+    m = length(w.polytope.b)
+    return Chain(
+        method, w, copy(w.center), zeros(n), zeros(k), zeros(m), zeros(m), copy(w.center),
+        size(w.points, 2),
+    )
 end
 
-is_feasible(prob, α; atol = 1e-15) = all(isapprox.(prob.E * α + prob.r, 0.0, atol = atol))
+# Set `c.u` to a unit direction; return false when there is none, as for a single point
+function direction!(rng::AbstractRNG, c::Chain{HitAndRun})
+    isempty(c.z) && return false
+    randn!(rng, c.z)
+    mul!(c.u, c.warmup.basis, c.z)
+    normalize!(c.u)
+    return true
+end
 
-#TODO: if I call this more than once, I will get double the warm up points
-function warmup_sampler!(samp)
-    # # Use JuMP to solve the linear programming problem
-    m = Model(GLPK.Optimizer)
-    @variable(m, samp.prob.lower[i] <= α[i = 1:size(samp.prob.E, 2)] <= samp.prob.upper[i])
-    @constraint(m, samp.prob.E * α + samp.prob.r .== 0)
-    @constraint(m, samp.prob.L * α .>= 0)
+function direction!(rng::AbstractRNG, c::Chain{ACHR})
+    B = c.warmup.basis
+    isempty(c.z) && return false
+    j = rand(rng, axes(c.warmup.points, 2))
+    for i in eachindex(c.u)
+        c.u[i] = c.warmup.points[i, j] - c.center[i]
+    end
+    # Project onto the basis so that rounding in the running mean does not accumulate
+    # in directions that leave the polytope
+    mul!(c.z, B', c.u)
+    mul!(c.u, B, c.z)
+    r = norm(c.u)
+    r > ZERO_TOL || return false
+    c.u ./= r
+    return true
+end
 
-    # Warm up along each individual dimension to get the Min and Max to form a spanning set
-    for sense in (MOI.MIN_SENSE, MOI.MAX_SENSE)
-        for i in 1:size(samp.prob.E, 2)
-            @objective(m, sense, α[i])
-            optimize!(m)
-            if termination_status(m) == MOI.INFEASIBLE
-                samp.feasible = false
-                return :Infeasible
-                #continue
-            end
-            if termination_status(m) == MOI.OPTIMAL
-                push!(samp.warmup, value.(α))
-            end
+# Narrow `(tmin, tmax)` to the `t` with `t * g <= s`, for slack `s >= 0`
+@inline function narrow(tmin, tmax, g, s)
+    if g > ZERO_TOL
+        tmax = min(tmax, s / g)
+    elseif g < -ZERO_TOL
+        tmin = max(tmin, s / g)
+    end
+    return tmin, tmax
+end
+
+# The interval of `t` with `x + t * u` in the polytope. Slacks are clamped at zero so that a
+# point that rounding has put just outside a constraint still gets an interval holding zero.
+function chord(c::Chain)
+    P = c.warmup.polytope
+    x, u = c.x, c.u
+    tmin, tmax = -Inf, Inf
+    for i in eachindex(x)
+        tmin, tmax = narrow(tmin, tmax, u[i], max(P.upper[i] - x[i], 0.0))
+        tmin, tmax = narrow(tmin, tmax, -u[i], max(x[i] - P.lower[i], 0.0))
+    end
+    mul!(c.Ax, P.A, x)
+    mul!(c.Au, P.A, u)
+    for i in eachindex(c.Ax)
+        tmin, tmax = narrow(tmin, tmax, c.Au[i], max(P.b[i] - c.Ax[i], 0.0))
+    end
+    return tmin, tmax
+end
+
+# One hit-and-run step: move `c.x` to a uniform point on the chord through it along a new
+# direction, and update the running mean
+function step!(rng::AbstractRNG, c::Chain)
+    if direction!(rng, c)
+        tmin, tmax = chord(c)
+        isfinite(tmin) && isfinite(tmax) ||
+            throw(ArgumentError("the polytope is unbounded along a sampled direction"))
+        t = tmin + (tmax - tmin) * rand(rng)
+        for i in eachindex(c.x)
+            c.x[i] += t * c.u[i]
         end
     end
-    #TODO: Remove redundant search directions
-    #keep = np.logical_not(self._is_redundant(self.warmup))
-    unique!(samp.warmup)
-    samp.n_warmup = length(samp.warmup)
-    if samp.n_warmup == 0
-        error("Insufficient Direction Vectors Found")
+    c.n_seen += 1
+    for i in eachindex(c.center)
+        c.center[i] += (c.x[i] - c.center[i]) / c.n_seen
     end
-    samp.n_samples = samp.n_warmup
-    samp.center = mean(samp.warmup)
-
-    # start at the current estimated center
-    samp.prev = copy(samp.center)
-
-    samp.feasible = true
-    return :Feasible
+    return c
 end
 
 """
-Sample a new feasible point from the point `sampler.prev` in direction `Δ`.
+    hr_sample([rng], P::Polytope, n; optimizer = HiGHS.Optimizer, kwargs...)
+    hr_sample([rng], w::Warmup, n; method = HitAndRun(), burn_in = n, thin = 1)
+
+Draw `n` points from the uniform distribution on a polytope by hit-and-run, returned as the
+columns of a matrix. Pass a [`Warmup`](@ref) from [`warmup`](@ref) to reuse its linear
+programs across chains; given a [`Polytope`](@ref), `hr_sample` calls `warmup` first.
+
+The chain starts at the warmup center, discards `burn_in` steps and then keeps every
+`thin`-th point, for `burn_in + n * thin` steps in total. Consecutive points are correlated;
+raise `thin` to reduce the correlation. `method` is [`HitAndRun`](@ref) or [`ACHR`](@ref).
+
+# Examples
+```julia
+P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])  # a triangle
+X = hr_sample(Xoshiro(1), P, 1000; thin = 10)
+```
 """
-function step(samp, Δin)
-    Δ = copy(Δin)
-    prob = samp.prob
-    #TODO: should add this to sampler type
-    feasibility_tol = 1e-7
-    scale_neg = -Inf
-    scale_pos = Inf
-    for i in eachindex(Δ)
-        # If any of the directions are near zero we should not sample in that direction as it will
-        # not be in the convex space (i.e. that dimension is fixed and will not vary)
-        # if isapprox(Δ[i], 0, atol = feasibility_tol)
-        #     # A degenerate direction dimensions, skip this dimension
-        #     #@show "Hit and Run search direction is length 0"
-        #     continue
-        # end
-        if abs(Δ[i]) < feasibility_tol
-            Δ[i] = 0.0
-            continue
-        end
-        # We need to solve:
-        # α + Δ * scale = Bound => scale = (Bound - α) / Δ
-        #
-        # (1 - bounds_tol):
-        # make the bounds a little tighter according to the `bounds_tol` so that we have less
-        # of a chance of leaving the boundary due to numerical error
-        scale_low = ((1 - samp.bounds_tol) * prob.lower[i] - samp.prev[i]) / Δ[i]
-        scale_upp = ((1 - samp.bounds_tol) * prob.upper[i] - samp.prev[i]) / Δ[i]
-
-        for sv in (scale_low, scale_upp)
-            if sv < 0
-                # Find the largest negative scaling
-                if sv > scale_neg
-                    scale_neg = sv
-                end
-            else
-                # Find the smallest positive scaling
-                if sv < scale_pos
-                    scale_pos = sv
-                end
-            end
-        end
+function hr_sample(
+        rng::AbstractRNG, w::Warmup, n::Integer;
+        method::AbstractHitAndRun = HitAndRun(), burn_in::Integer = n, thin::Integer = 1,
+    )
+    n >= 0 || throw(ArgumentError("n must be non-negative, got $n"))
+    burn_in >= 0 || throw(ArgumentError("burn_in must be non-negative, got $burn_in"))
+    thin >= 1 || throw(ArgumentError("thin must be positive, got $thin"))
+    c = Chain(method, w)
+    for _ in 1:burn_in
+        step!(rng, c)
     end
-    # Inequality bounds
-    # Inequalitity terms
-    Lx = samp.prob.L * samp.prev
-    LΔ = samp.prob.L * Δ
-
-    #TODO: bounds_tol needs to be fixed in the sampler type so it can vary for each inequality
-    for i in eachindex(LΔ)
-        if abs(LΔ[i]) < feasibility_tol
-            continue
+    X = Matrix{Float64}(undef, length(c.x), n)
+    for j in 1:n
+        for _ in 1:thin
+            step!(rng, c)
         end
-        #ieq_low = ((1 - samp.bounds_tol) * prob.lower[i] - Lx[i]) / LΔ[i]
-        #ieq_upp = ((1 - samp.bounds_tol) * prob.upper[i] - Lx[i]) / LΔ[i]
-        sv = (samp.bounds_tol - Lx[i]) / LΔ[i]
-
-        if sv < 0
-            # Find the largest negative scaling
-            if sv > scale_neg
-                scale_neg = sv
-            end
-        else
-            # Find the smallest positive scaling
-            if sv < scale_pos
-                scale_pos = sv
-            end
-        end
+        X[:, j] = c.x
     end
-    #@show scale_neg, scale_pos
-    scale = rand(samp.RNG, Uniform(scale_neg, scale_pos))
-
-    return samp.prev + scale * Δ
+    return X
 end
 
-function update!(samp::HRSampler, Δ)
-    samp.prev = step(samp, Δ)
-    samp.n_samples += 1
+function hr_sample(rng::AbstractRNG, P::Polytope, n::Integer; optimizer = HiGHS.Optimizer, kwargs...)
+    return hr_sample(rng, warmup(P; optimizer), n; kwargs...)
 end
 
-function update!(samp::ACHRSampler, Δ)
-    samp.prev = step(samp, Δ)
-    # update the center given the new iteration
-    samp.center = ((samp.n_samples * samp.center) / (samp.n_samples + 1) + samp.prev / (samp.n_samples + 1))
-    samp.n_samples += 1
-end
-
-function hr_sample!(samp::HRSampler, n::Int; thinning::Int = 1, burn_in::Int = -1)
-    if burn_in == -1 # what is the correct way to do this in a typed manner?
-        burn_in = round(Int, n / 2)
-    end
-    #TODO: use thinning + burn_in information to get this correct
-    #chain = fill(0.0, n - burn_in, length(samp.center))
-    chain = Vector{eltype(samp.prev)}[]
-
-    for i in 1:n
-        # mix in the original warmup points to not get stuck
-        Δ = samp.Z * rand(size(samp.Z, 2))
-        update!(samp, Δ)
-        # thin for memory saving
-        if i % thinning == 0 && i > burn_in
-            push!(chain, copy(samp.prev))
-            #push!(chain, copy(samp.center))
-        end
-    end
-
-    return VectorOfArray(chain)
-end
-
-"""
-Generate a set of samples.
-
-this is the basic sampling function for all hit-and-run samplers.
-
-* Arguments
-n::Int
-    the number of samples that are generated at once
-
-* Notes
-Performance of this function linearly depends on the number of reactions in your model and the
-thinning factor.
-
-ACHR generates samples by choosing new directions from the sampling space's
-center and the warmup points. The implementation used here is the same
-as in the Matlab Cobra Toolbox [2]_ and uses only the initial warmup points
-to generate new directions and not any other previous iterates. This
-usually gives better mixing since the startup points are chosen to span
-the space in a wide manner. This also makes the generated sampling chain
-quasi-markovian since the center converges rapidly.
-Memory usage is roughly in the order of (2 * number reactions)^2
-due to the required nullspace matrices and warmup points. So large
-models easily take up a few GB of RAM.
-
-* References
-[1] Direction Choice for Accelerated Convergence in Hit-and-Run Sampling
-   David E. Kaufman Robert L. Smith
-   Operations Research 199846:1 , 84-95
-   https://doi.org/10.1287/opre.46.1.84
-[2] https://github.com/opencobra/cobratoolbox
-"""
-function hr_sample!(samp::ACHRSampler, n::Int; thinning::Int = 1, burn_in::Int = -1)
-    if burn_in == -1 # what is the correct way to do this in a typed manner?
-        burn_in = round(Int, n / 2)
-    end
-    #TODO: use thinning + burn_in information to get this correct
-    #chain = fill(0.0, n - burn_in, length(samp.center))
-    chain = Vector{eltype(samp.prev)}[]
-
-    for i in 1:n
-        # mix in the original warmup points to not get stuck
-        Δ = sample(samp.warmup) - samp.center
-        update!(samp, Δ)
-        # thin for memory saving
-        if i % thinning == 0 && i > burn_in
-            push!(chain, copy(samp.prev))
-            #push!(chain, copy(samp.center))
-        end
-    end
-
-    return VectorOfArray(chain)
-end
+hr_sample(P::Union{Polytope, Warmup}, n::Integer; kwargs...) = hr_sample(default_rng(), P, n; kwargs...)
