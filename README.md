@@ -74,6 +74,13 @@ Carlo standard errors.
   COBRA Toolbox default. Each step makes one coordinate move per dimension at `O(m)` each,
   in cyclic order by default; moves per effective sample grow as the square of the
   dimension.
+- `DikinWalk()` (Kannan & Narayanan 2012) and `VaidyaWalk()` (Chen et al. 2018) propose
+  Gaussian moves shaped by the log-barrier and volumetric-barrier ellipsoids at the current
+  point and accept them by a Metropolis filter. They are affine-invariant, so they need no
+  rounding, and carry polynomial mixing guarantees. In practice they are the slowest
+  methods on rounded polytopes: with 10 dimensions and 100 to 2000 constraints they needed
+  360 to 490 steps per effective sample, and reached 50 to 450 effective samples per second
+  where the billiard walk reached 6500 to 44 000. Use them as independent checks.
 - `HitAndRun()` draws directions uniformly from the sphere. `ACHR()` draws them from the
   running mean to an extreme point of each coordinate, solving the `2n` linear programs for
   them on first use; it is only approximately Markov and the slowest method on rounded
@@ -151,7 +158,7 @@ Tasks are run with [just](https://github.com/casey/just):
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
-just stress     # convergence stress tests and mixing-cost scaling (about 3 minutes)
+just stress     # convergence stress tests and mixing-cost scaling (about 5 minutes)
 ```
 
 ## License
