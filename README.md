@@ -89,6 +89,13 @@ Carlo standard errors.
   |---|---|---|
   | `rounding = :none` | R̂ 2.66 after 256 000 points per chain | 225 ESS/s |
   | `rounding = :ellipsoid` | 82 689 ESS/s | 218 ESS/s |
+- `CRHMC()` is constrained Riemannian Hamiltonian Monte Carlo (Kook et al. 2022): Hamiltonian
+  dynamics in the metric of the log barrier, integrated by the implicit midpoint rule, with
+  a Metropolis filter and an adaptive step size. Its steps per effective sample grow slowly
+  with dimension (15 to 23 on simplices of 10 to 80 dimensions), but each step factors the
+  dense `k × k` metric, so on the problems tested it reached 2 to 4500 effective samples per
+  second where the billiard walk reached 560 to 150 000. It needs the default rounding on
+  badly scaled polytopes.
 - `HitAndRun()` draws directions uniformly from the sphere. `ACHR()` draws them from the
   running mean to an extreme point of each coordinate, solving the `2n` linear programs for
   them on first use; it is only approximately Markov and the slowest method on rounded
@@ -166,7 +173,7 @@ Tasks are run with [just](https://github.com/casey/just):
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
-just stress     # convergence stress tests and mixing-cost scaling (about 5 minutes)
+just stress     # convergence stress tests and mixing-cost scaling (about 10 minutes)
 ```
 
 ## License

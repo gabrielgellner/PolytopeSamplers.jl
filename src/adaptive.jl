@@ -71,6 +71,7 @@ function run_chain!(rng, state, count, thinning)
         end
         X[:, j] = state.x
     end
+    check_state(state)
     return X
 end
 

@@ -25,7 +25,8 @@ public Warmup
 include("sampler.jl")
 include("billiard.jl")
 include("barrier.jl")
-export ACHR, BilliardWalk, CoordinateHitAndRun, DikinWalk, HitAndRun, VaidyaWalk
+include("crhmc.jl")
+export ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC, DikinWalk, HitAndRun, VaidyaWalk
 export MCMCDistributed, MCMCSerial, MCMCThreads, sample
 public AbstractHitAndRun, PolytopeSampler
 
