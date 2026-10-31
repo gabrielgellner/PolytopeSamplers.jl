@@ -30,6 +30,10 @@ lint:
 test:
     {{ julia }} --project -e 'using Pkg; Pkg.test()'
 
+# Stress tests of convergence and hard geometry (several minutes; not part of ci)
+stress:
+    {{ julia }} --project=test test/stress.jl
+
 # Run every check (format, lint, tests); run before every push and merge, as there is no
 # hosted CI
 ci: fmt-check lint test
