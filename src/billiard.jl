@@ -43,19 +43,20 @@ function Base.show(io::IO, m::BilliardWalk)
     return
 end
 
-struct BilliardState
-    method::BilliardWalk
-    warmup::Warmup
-    z::Vector{Float64}
-    x::Vector{Float64}
-    v::Vector{Float64} # direction of the trajectory
-    slack::Vector{Float64} # h - G z
-    Gv::Vector{Float64}
-    zstart::Vector{Float64} # start of the trajectory, restored if it is abandoned
-    Gt::Matrix{Float64} # Gᵀ, whose columns are the facet normals
-    GG::Matrix{Float64} # G Gᵀ
-    trajectory_length::Float64
-    max_reflections::Int
+mutable struct BilliardState
+    const method::BilliardWalk
+    const warmup::Warmup
+    const z::Vector{Float64}
+    const x::Vector{Float64}
+    const v::Vector{Float64} # direction of the trajectory
+    const slack::Vector{Float64} # h - G z
+    const Gv::Vector{Float64}
+    const zstart::Vector{Float64} # start of the trajectory, restored if it is abandoned
+    const Gt::Matrix{Float64} # Gᵀ, whose columns are the facet normals
+    const GG::Matrix{Float64} # G Gᵀ
+    const trajectory_length::Float64
+    const max_reflections::Int
+    steps::Int # steps taken, for refreshing the slacks
 end
 
 function chain_state(method::BilliardWalk, w::Warmup)
@@ -64,7 +65,7 @@ function chain_state(method::BilliardWalk, w::Warmup)
     L = something(method.trajectory_length, 2 * sqrt(k) * w.radius)
     return BilliardState(
         method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k),
-        Matrix(w.G'), w.G * w.G', L, something(method.max_reflections, 1000 * k),
+        Matrix(w.G'), w.G * w.G', L, something(method.max_reflections, 1000 * k), 0,
     )
 end
 
@@ -122,7 +123,7 @@ function step!(rng::AbstractRNG, c::BilliardState)
     w = c.warmup
     randn!(rng, c.v)
     normalize!(c.v)
-    update_slack!(c)
+    refresh_slack!(c)
     mul!(c.Gv, w.G, c.v)
     copyto!(c.zstart, c.z)
     T = randexp(rng) * c.trajectory_length
@@ -138,5 +139,6 @@ function step!(rng::AbstractRNG, c::BilliardState)
         reflect!(c, facet)
     end
     copyto!(c.z, c.zstart)
+    update_slack!(c)
     return update_x!(c)
 end
