@@ -17,7 +17,9 @@ function pentagon_moments(rng, n)
     return vec(mean(Y; dims = 2)), vec(var(Y; dims = 2))
 end
 
-const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
+const methods = (
+    HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
+)
 
 @testset "sample" begin
     @testset "output shape ($m)" for m in methods
@@ -106,10 +108,23 @@ const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
         @test all(x -> x in pentagon, eachcol(X))
     end
 
-    @testset "CoordinateHitAndRun moves" begin
+    @testset "CoordinateHitAndRun moves and scan" begin
         @test_throws ArgumentError CoordinateHitAndRun(moves = 0)
+        @test_throws ArgumentError CoordinateHitAndRun(scan = :sweep)
         @test sprint(show, CoordinateHitAndRun()) == "CoordinateHitAndRun()"
         @test sprint(show, CoordinateHitAndRun(moves = 3)) == "CoordinateHitAndRun(moves = 3)"
+        @test sprint(show, CoordinateHitAndRun(moves = 3, scan = :random)) ==
+            "CoordinateHitAndRun(moves = 3, scan = :random)"
+        # A cyclic scan with one move per step changes the coordinates of z in turn
+        w5 = warmup(Polytope(zeros(5), ones(5)))
+        c = PolytopeSamplers.chain_state(CoordinateHitAndRun(moves = 1), w5)
+        rng = Xoshiro(3)
+        changed = map(1:10) do _
+            z0 = copy(c.z)
+            PolytopeSamplers.step!(rng, c)
+            findall(c.z .!= z0)
+        end
+        @test changed == [[j] for j in [1:5; 1:5]]
         w = warmup(pentagon)
         # Steps of one move, keeping every second, follow steps of two moves
         X2 = sample(Xoshiro(2), w, CoordinateHitAndRun(moves = 2), 2)
@@ -132,6 +147,16 @@ const methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
         X = sample(Xoshiro(1), w, BilliardWalk(trajectory_length = 50.0, max_reflections = 1), 200)
         @test all(x -> x in pentagon, eachcol(X))
         @test count(j -> X[:, j] == X[:, j - 1], 2:200) > 100
+    end
+
+    @testset "slacks updated in place match recomputed slacks ($m)" for m in methods
+        w = warmup(pentagon)
+        c = PolytopeSamplers.chain_state(m, w)
+        rng = Xoshiro(4)
+        for _ in 1:1_000
+            PolytopeSamplers.step!(rng, c)
+            @test c.slack ≈ w.h .- w.G * c.z atol = 1.0e-10
+        end
     end
 
     @testset "steps are type stable and allocation free ($m)" for m in methods

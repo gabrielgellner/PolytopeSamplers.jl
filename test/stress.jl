@@ -15,7 +15,7 @@
 using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun,
     MCMCSerial, Polytope, diagnostics, sample, warmup
 using AbstractMCMC: AbstractMCMC
-using LinearAlgebra: I
+using LinearAlgebra: I, dot, norm
 using Printf: @printf
 using Random: Xoshiro, randn
 using Statistics: mean
@@ -23,7 +23,9 @@ using Test: @test, @testset
 
 AbstractMCMC.setprogress!(false)
 
-const all_methods = (HitAndRun(), ACHR(), CoordinateHitAndRun(), BilliardWalk())
+const all_methods = (
+    HitAndRun(), ACHR(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), BilliardWalk(),
+)
 
 # Every mean within five Monte Carlo standard errors of the truth, every standard deviation
 # within six (see test/correctness.jl)
@@ -208,6 +210,53 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
         @test d.max_rhat < 1.01
         σ = mean(d.std)
         @test moments_match(d, fill(0.25, 16), fill(σ, 16))
+    end
+
+    @testset "samples stay inside the polytope ($m)" for m in all_methods
+        # 100 000 steps each on a simplex, a box of aspect ratio 10^6, the cross-polytope and
+        # a pentagon: no inequality is violated by more than 1e-12 relative to its scale,
+        # equalities hold to 1e-13, and no billiard trajectory is abandoned
+        dim = 8
+        cross = Polytope(
+            fill(-1.0, dim), fill(1.0, dim);
+            A = [((j >> (i - 1)) & 1 == 1 ? 1.0 : -1.0) for j in 0:(2^dim - 1), i in 1:dim],
+            b = ones(2^dim),
+        )
+        polytopes = [
+            simplex(50), Polytope(zeros(20), 10.0 .^ range(-3, 3; length = 20)), cross,
+            Polytope([0.0, 0.0], [5.5, 5.5]; A = [3 / 2 -1; 1 1; -2 -1], b = [5.0, 10.0, -3.0]),
+        ]
+        worst_inequality = 0.0
+        worst_equality = 0.0
+        abandoned = 0
+        for P in polytopes
+            w = warmup(P)
+            c = PolytopeSamplers.chain_state(m, w)
+            rng = Xoshiro(1)
+            for _ in 1:100_000
+                z0 = copy(c.z)
+                PolytopeSamplers.step!(rng, c)
+                m isa BilliardWalk && c.z == z0 && (abandoned += 1)
+                x = c.x
+                scale = max(1, norm(x))
+                for i in eachindex(x)
+                    worst_inequality = max(worst_inequality, (x[i] - P.upper[i]) / max(1, abs(P.upper[i])))
+                    worst_inequality = max(worst_inequality, (P.lower[i] - x[i]) / max(1, abs(P.lower[i])))
+                end
+                for i in eachindex(P.b)
+                    a = view(P.A, i, :)
+                    worst_inequality = max(worst_inequality, (dot(a, x) - P.b[i]) / (norm(a) * scale))
+                end
+                for i in eachindex(P.d)
+                    a = view(P.C, i, :)
+                    worst_equality = max(worst_equality, abs(dot(a, x) - P.d[i]) / (norm(a) * scale))
+                end
+            end
+        end
+        @printf("  %-44s worst inequality %8.1e  worst equality %8.1e\n", m, worst_inequality, worst_equality)
+        @test worst_inequality <= 1.0e-12
+        @test worst_equality <= 1.0e-13
+        @test abandoned == 0
     end
 
     @testset "200-dimensional simplex" begin
