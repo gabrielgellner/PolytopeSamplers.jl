@@ -59,6 +59,8 @@ mutable struct BilliardState
     steps::Int # steps taken, for refreshing the slacks
 end
 
+AbstractMCMC.getparams(c::BilliardState) = copy(c.x)
+
 function chain_state(::BilliardWalk, ::Target)
     throw(ArgumentError("BilliardWalk samples only the uniform distribution"))
 end

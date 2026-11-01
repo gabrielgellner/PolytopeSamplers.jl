@@ -26,6 +26,20 @@ chains = sample(Xoshiro(1), w, BilliardWalk(), MCMCThreads(), 1_000, 4; progress
 length(chains), size(first(chains))
 ```
 
+With [MCMCChains](https://github.com/TuringLang/MCMCChains.jl) loaded, `chain_type =
+Chains` returns the chains as one `Chains` object, for its summaries, its plots with
+StatsPlots and its conversion to ArviZ. Name the coordinates with `param_names`:
+
+```@example sampling
+using MCMCChains
+
+c = sample(
+    Xoshiro(1), w, BilliardWalk(), MCMCThreads(), 1_000, 4;
+    chain_type = Chains, param_names = ["x₁", "x₂"], progress = false,
+)
+summarystats(c)
+```
+
 ## Diagnostics
 
 Consecutive points of a chain are correlated, so `n` points carry less information than

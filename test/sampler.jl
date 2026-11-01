@@ -3,6 +3,7 @@ using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRu
     HitAndRun, VaidyaWalk, MCMCSerial, MCMCThreads, Polytope, sample, warmup
 using AllocCheck: check_allocs
 using JET: @test_opt
+using MCMCChains: Chains
 using Random: Xoshiro
 using Statistics: mean, var
 
@@ -81,6 +82,30 @@ const fast_methods = filter(m -> !(m isa Union{DikinWalk, VaidyaWalk}), methods)
         @test PolytopeSamplers.start_state(m, w, [0.3, 0.7, 0.5]).x ≈ [0.3, 0.7, 0.5]
         @test_throws ArgumentError sample(Xoshiro(1), w, m, 5; initial_params = [0.3, 0.6, 0.5])
         @test_throws ArgumentError sample(Xoshiro(1), w, m, 5; initial_params = [0.3, 0.7, 0.4])
+    end
+
+    @testset "MCMCChains output ($m)" for m in methods
+        w = warmup(pentagon)
+        X = sample(Xoshiro(1), w, m, 20; discard_initial = 3, thinning = 2)
+        c = sample(Xoshiro(1), w, m, 20; discard_initial = 3, thinning = 2, chain_type = Chains)
+        @test c isa Chains
+        @test Array(c) == X'
+        @test names(c) == [Symbol("x[1]"), Symbol("x[2]")]
+        @test range(c) == 4:2:42
+        chains = sample(Xoshiro(1), w, m, MCMCSerial(), 20, 3)
+        c = sample(Xoshiro(1), w, m, MCMCSerial(), 20, 3; chain_type = Chains, param_names = ["a", "b"])
+        @test size(c) == (20, 2, 3)
+        @test names(c) == [:a, :b]
+        @test all(j -> c.value[:, :, j] == chains[j]', 1:3)
+        @test_throws DimensionMismatch sample(Xoshiro(1), w, m, 5; chain_type = Chains, param_names = ["a"])
+    end
+
+    @testset "getparams ($m)" for m in methods
+        w = warmup(pentagon)
+        x, c = AbstractMCMC.step(Xoshiro(1), w, m; initial_params = [3.0, 4.0])
+        @test AbstractMCMC.getparams(c) == x
+        @test AbstractMCMC.getparams(w, c) == x
+        @test AbstractMCMC.getparams(c) !== c.x
     end
 
     @testset "discard_initial and thinning ($m)" for m in methods
