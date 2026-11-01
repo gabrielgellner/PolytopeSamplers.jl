@@ -17,8 +17,8 @@ Pkg.add(url = "https://github.com/gabrielgellner/PolytopeSamplers.jl")
 
 ## Citing
 
-Cite the version you used, with the DOI of its Zenodo archive; `CITATION.cff` holds the
-metadata, and GitHub's "Cite this repository" button formats it.
+Cite PolytopeSamplers.jl with the version you used; `CITATION.cff` holds the metadata, and
+GitHub's "Cite this repository" button formats it.
 
 ## Documentation
 

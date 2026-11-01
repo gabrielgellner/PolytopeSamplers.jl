@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use PolytopeSamplers.jl, please cite the version you used with the DOI of its Zenodo archive."
+message: "If you use PolytopeSamplers.jl, please cite it with the version you used."
 title: "PolytopeSamplers.jl: Markov chain Monte Carlo sampling and volume estimation of convex polytopes"
 type: software
 authors:

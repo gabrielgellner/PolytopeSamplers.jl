@@ -6,8 +6,8 @@ comment.
 
 ## Citing PolytopeSamplers.jl
 
-Cite the version you used, with the DOI of its Zenodo archive. The repository's
-`CITATION.cff` holds the metadata.
+Cite PolytopeSamplers.jl with the version you used. The repository's `CITATION.cff` holds
+the metadata.
 
 ## Adapted code
 
