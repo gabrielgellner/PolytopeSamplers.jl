@@ -52,6 +52,37 @@ const fast_methods = filter(m -> !(m isa Union{DikinWalk, VaidyaWalk}), methods)
         @test any(x -> x != w.center, eachcol(X))
     end
 
+    @testset "chain starts ($m)" for m in methods
+        w = warmup(pentagon)
+        x0 = [3.0, 4.0]
+        c = PolytopeSamplers.start_state(m, w, x0)
+        @test c.x ≈ x0
+        # The first point is one step from the given start
+        X = sample(Xoshiro(1), w, m, 5; initial_params = x0)
+        rng = Xoshiro(1)
+        @test X[:, 1] == PolytopeSamplers.step!(rng, PolytopeSamplers.start_state(m, w, x0)).x
+        @test all(x -> x in pentagon, eachcol(X))
+        @test_throws ArgumentError sample(Xoshiro(1), w, m, 5; initial_params = [0.0, 0.0])
+        starts = [[3.0, 4.0], [2.5, 5.0], [4.0, 3.0]]
+        chains = sample(Xoshiro(1), w, m, MCMCSerial(), 5, 3; initial_params = starts, progress = false)
+        @test all(X -> all(x -> x in pentagon, eachcol(X)), chains)
+        @test_throws ArgumentError sample(
+            Xoshiro(1), w, m, MCMCSerial(), 5, 3; initial_params = [[3.0, 4.0], [0.0, 0.0], [4.0, 3.0]], progress = false,
+        )
+        # Without initial_params, the chains of an ensemble start apart
+        firsts = [X[:, 1] for X in sample(Xoshiro(2), w, m, MCMCSerial(), 4, 4; progress = false)]
+        @test allunique(firsts)
+    end
+
+    @testset "chain starts on a slice ($m)" for m in methods
+        # x₁ + x₂ = 1 in the unit square, with x₃ fixed at 0.5
+        P = Polytope([0.0, 0.0, 0.5], [1.0, 1.0, 0.5]; C = [1.0 1.0 0.0], d = [1.0])
+        w = warmup(P)
+        @test PolytopeSamplers.start_state(m, w, [0.3, 0.7, 0.5]).x ≈ [0.3, 0.7, 0.5]
+        @test_throws ArgumentError sample(Xoshiro(1), w, m, 5; initial_params = [0.3, 0.6, 0.5])
+        @test_throws ArgumentError sample(Xoshiro(1), w, m, 5; initial_params = [0.3, 0.7, 0.4])
+    end
+
     @testset "discard_initial and thinning ($m)" for m in methods
         w = warmup(pentagon)
         long = sample(Xoshiro(5), w, m, 30)

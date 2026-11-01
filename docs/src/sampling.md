@@ -42,8 +42,10 @@ d = diagnostics(chains)
 - `mean`, `std` and their Monte Carlo standard errors `mcse_mean`, `mcse_std`: report
   estimates with these as error bars.
 
-R̂ needs several chains that start in different places. A single chain can look converged
-while it has explored only part of the polytope, so run at least four.
+R̂ needs several chains that start in different places. [`sample`](@ref) starts each chain
+at a uniform random point of the largest ball inside the polytope, or at the point given by
+`initial_params` (one per chain with an ensemble). A single chain can look converged while
+it has explored only part of the polytope, so run at least four.
 
 ## Sampling until converged
 

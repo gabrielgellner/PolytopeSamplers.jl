@@ -17,9 +17,9 @@ direction in which the polytope has width and the rows of `G` have unit norm.
 
 - `polytope`: the [`Polytope`](@ref) sampled.
 - `points`: the distinct extreme points of each coordinate, one per column.
-- `center`: the point `z = 0`, where [`sample`](@ref) starts chains: the center of the last
-  inscribed ellipsoid when rounded, otherwise the center of the largest inscribed ball, or
-  the mean of `points` with `extremes = true`.
+- `center`: the point `z = 0`, the center of the last inscribed ellipsoid when rounded,
+  otherwise the center of the largest inscribed ball, or the mean of `points` with
+  `extremes = true`.
 - `transform`: the `n × k` matrix taking `z` to `x - center`. Its columns are orthonormal
   when not rounded.
 - `G`, `h`: the constraints of `P` in `z`, leaving out those that are constant on the slice.
