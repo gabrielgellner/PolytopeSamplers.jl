@@ -11,8 +11,7 @@ The center and radius of the largest ball in `{z : G z ≤ h}`, for unit-norm ro
 from one linear program.
 """
 function chebyshev_center(G, h, optimizer)
-    model = Model(optimizer)
-    set_silent(model)
+    model = lp(optimizer)
     k = size(G, 2)
     z = @variable(model, [1:k])
     r = @variable(model, lower_bound = 0)

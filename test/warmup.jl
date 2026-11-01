@@ -1,6 +1,11 @@
 using PolytopeSamplers: Polytope, Warmup, warmup
 using LinearAlgebra: I, norm, svdvals
-using PolytopeSamplers: PolytopeSamplers
+using PolytopeSamplers: PolytopeSamplers, BilliardWalk, sample, sample_until_converged
+using Random: Xoshiro
+using Test: @test_logs
+using JuMP: get_attribute
+
+include(joinpath(@__DIR__, "fixtures", "thin_foodweb.jl"))
 
 @testset "warmup" begin
     @testset "errors" begin
@@ -98,5 +103,38 @@ using PolytopeSamplers: PolytopeSamplers
         w = warmup(Polytope([0.2, 0.7], [0.2, 0.7]))
         @test size(w.transform) == (2, 0)
         @test w.center == [0.2, 0.7]
+    end
+
+    # Issue #31: with atol = 1e-6 the warmup fixed thin directions at a center 1.1e-6 below a
+    # bound of 0, and every sample kept the violation
+    @testset "thin directions" begin
+        P = thin_foodweb_polytope()
+        w = @test_logs (:warn, r"fixed directions") match_mode = :any warmup(Xoshiro(1), P; atol = 1.0e-6)
+        @test PolytopeSamplers.constraint_violation(P, w.center) <= 1.0e-9
+        X = sample(Xoshiro(2), w, BilliardWalk(), 500; progress = false)
+        @test all(x -> PolytopeSamplers.constraint_violation(P, x) <= 1.0e-9, eachcol(X))
+        @test length(PolytopeSamplers.fixed_coordinates(w)) == 2
+        @test occursin("2 fixed coordinates", sprint(show, w))
+        r = sample_until_converged(Xoshiro(3), w, BilliardWalk(); target_ess = 100)
+        @test r.fixed == PolytopeSamplers.fixed_coordinates(w)
+        # The default atol samples the thin directions
+        w8 = warmup(Xoshiro(1), P)
+        @test isempty(PolytopeSamplers.fixed_coordinates(w8))
+        @test size(w8.transform, 2) == 83
+        @test PolytopeSamplers.constraint_violation(P, w8.center) <= 1.0e-9
+        # A box with a side of 1e-7 is sampled in 4 dimensions by default; with atol = 1e-6
+        # the side is fixed inside the box, with a warning
+        box = Polytope(zeros(4), [1.0, 1.0, 1.0, 1.0e-7])
+        @test size(warmup(box).transform, 2) == 4
+        wb = @test_logs (:warn, r"fixed directions") match_mode = :any warmup(box; atol = 1.0e-6)
+        @test size(wb.transform, 2) == 3
+        @test 0 <= wb.center[4] <= 1.0e-7
+        # The warmup's linear programs tighten HiGHS's feasibility tolerances to 1e-9
+        model = PolytopeSamplers.lp(PolytopeSamplers.HiGHS.Optimizer)
+        @test get_attribute(model, "primal_feasibility_tolerance") == 1.0e-9
+        @test get_attribute(model, "dual_feasibility_tolerance") == 1.0e-9
+        # Implicit equalities stay fixed at the default: the simplex as two inequalities
+        S = Polytope(zeros(6), ones(6); A = [ones(1, 6); -ones(1, 6)], b = [1.0, -1.0])
+        @test size(warmup(S).transform, 2) == 5
     end
 end
