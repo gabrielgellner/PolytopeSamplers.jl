@@ -1,0 +1,66 @@
+name: CI
+# The repository is public, so GitHub-hosted runners are free. `just ci` runs the same checks
+# locally.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - uses: fredrikekre/runic-action@v1
+        with:
+          version: '1'
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      # JETLS gets its own depot, cached as a whole. Package images are compiled for a generic
+      # set of x86 CPUs (the official Julia binaries' target), as runners vary between CPU
+      # models and an image built for one model's native target is rejected on another.
+      JULIA_DEPOT_PATH: /home/runner/.jetls-depot
+      JULIA_CPU_TARGET: generic;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        id: julia
+        with:
+          version: '1'
+      - name: Resolve JETLS release commit
+        id: jetls
+        run: echo "sha=$(git ls-remote https://github.com/aviatesk/JETLS.jl refs/heads/release | cut -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: /home/runner/.jetls-depot
+          key: jetls-v2-${{ runner.os }}-julia-${{ steps.julia.outputs.julia-version }}-${{ steps.jetls.outputs.sha }}-${{ hashFiles('Project.toml') }}
+          restore-keys: |
+            jetls-v2-${{ runner.os }}-julia-${{ steps.julia.outputs.julia-version }}-${{ steps.jetls.outputs.sha }}-
+      - name: Install JETLS
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: julia --startup-file=no -e 'using Pkg; Pkg.Apps.add(url = "https://github.com/aviatesk/JETLS.jl", rev = "${{ steps.jetls.outputs.sha }}")'
+      - name: Lint
+        run: $JULIA_DEPOT_PATH/bin/jetls check -q .

@@ -32,3 +32,6 @@ makedocs(;
     ],
     checkdocs = :exports,
 )
+
+# Deploys only on GitHub Actions; a local build stops here
+deploydocs(; repo = "github.com/gabrielgellner/PolytopeSamplers.jl", devbranch = "main")

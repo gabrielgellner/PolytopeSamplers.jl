@@ -103,8 +103,10 @@ just example constrained_foodweb
 
 ## Checks
 
-GitHub Actions is disabled for the repository. Run `just ci` before every push and before
-merging a pull request, and state in the pull request that it passed.
+GitHub Actions runs `.github/workflows/CI.yml` (tests on Linux and macOS, Runic, JETLS) on
+pull requests and on `main`, and `Docs.yml` builds the manual on pull requests and deploys
+it to the `gh-pages` branch from `main` and release tags. The repository is public, so the
+runners are free. Run `just ci` before pushing, and merge only when CI is green.
 
 ## Commits
 
