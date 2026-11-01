@@ -134,6 +134,8 @@ end
 
 chain_state(method::CRHMC, w::Warmup) = crhmc_state(method, w, nothing)
 
+AbstractMCMC.getparams(c::CRHMCState) = copy(c.x)
+
 function chain_state(method::CRHMC, t::Target)
     density = chain_density(t)
     has_gradient(density) ||

@@ -81,6 +81,8 @@ end
 chain_state(method::BarrierWalk, t::Target) = barrier_state(method, t.warmup, chain_density(t))
 chain_state(method::BarrierWalk, w::Warmup) = barrier_state(method, w, nothing)
 
+AbstractMCMC.getparams(c::BarrierState) = copy(c.x)
+
 function barrier_state(method::BarrierWalk, w::Warmup, density)
     k = size(w.transform, 2)
     m = length(w.h)

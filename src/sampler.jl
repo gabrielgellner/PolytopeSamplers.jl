@@ -126,6 +126,8 @@ end
 
 chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w, nothing)
 
+AbstractMCMC.getparams(c::HitAndRunState) = copy(c.x)
+
 function chain_state(method::Union{HitAndRun, CoordinateHitAndRun}, t::Target)
     return HitAndRunState(method, t.warmup, chain_density(t))
 end
@@ -317,7 +319,8 @@ function start_state(method::PolytopeSampler, model, x::AbstractVector{<:Real})
     return update_x!(state)
 end
 
-# AbstractMCMC interface. The first step starts from `initial_params` when given, otherwise
+# AbstractMCMC interface. Every state keeps the current point in `x`, which `getparams`
+# returns for callbacks. The first step starts from `initial_params` when given, otherwise
 # from a random point of the largest ball inside the polytope, so that the chains of an
 # ensemble start apart, as R̂ assumes.
 const SamplingModel = Union{Warmup, Target}
@@ -374,6 +377,9 @@ every `thinning`-th point. Consecutive points are correlated; check the effectiv
 size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
 [`warmup`](@ref) once for all chains with the given `extremes` and `rounding`. To run
 chains until they converge, see [`sample_until_converged`](@ref).
+
+With MCMCChains.jl loaded, `chain_type = Chains` returns an `MCMCChains.Chains` (one for all
+chains of an ensemble), with parameters named `x[1]`, `x[2]`, … or by `param_names`.
 
 This is `AbstractMCMC.sample` (also `StatsBase.sample`); its other keyword arguments, such
 as `initial_state` and `callback`, apply.
