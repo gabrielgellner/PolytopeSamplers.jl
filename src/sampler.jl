@@ -130,9 +130,13 @@ chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w, no
 AbstractMCMC.getparams(c::HitAndRunState) = copy(c.x)
 AbstractMCMC.getstats(::HitAndRunState{<:AbstractHitAndRun, Nothing}) = (;)
 AbstractMCMC.getstats(c::HitAndRunState) = (; lp = c.logp, n_evaluations = c.evaluations)
+# Exact chord draws keep no log density, so this evaluates it once, outside the step
+function AbstractMCMC.getstats(c::HitAndRunState{<:AbstractHitAndRun, ZQuadratic})
+    return (; lp = logdensity_z(c.density.density, c.z))
+end
 
 function chain_state(method::Union{HitAndRun, CoordinateHitAndRun}, t::Target)
-    return HitAndRunState(method, t.warmup, chain_density(t))
+    return HitAndRunState(method, t.warmup, chord_density(t))
 end
 
 function chain_state(::ACHR, ::Target)
@@ -201,6 +205,10 @@ uniform(rng, tmin, tmax) = tmin + (tmax - tmin) * rand(rng)
 # density along the chord
 function draw_on_chord(rng, ::HitAndRunState{<:AbstractHitAndRun, Nothing}, tmin, tmax, direction)
     return uniform(rng, tmin, tmax)
+end
+
+function draw_on_chord(rng, c::HitAndRunState{<:AbstractHitAndRun, ZQuadratic}, tmin, tmax, direction)
+    return draw_quadratic(rng, chord_coefficients(c.density, c.z, direction)..., tmin, tmax)
 end
 
 function draw_on_chord(rng, c::HitAndRunState{<:AbstractHitAndRun, <:ZDensity}, tmin, tmax, direction)

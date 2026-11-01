@@ -24,7 +24,7 @@ export warmup
 public Warmup
 
 include("density.jl")
-export Target
+export ExponentialTarget, GaussianTarget, Target
 
 include("sampler.jl")
 include("billiard.jl")

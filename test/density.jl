@@ -1,8 +1,12 @@
 using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CRHMC, CoordinateHitAndRun,
-    DikinWalk, HitAndRun, Polytope, Target, VaidyaWalk, sample, sample_until_converged, warmup
+    DikinWalk, ExponentialTarget, GaussianTarget, HitAndRun, Polytope, Target, VaidyaWalk, sample,
+    sample_until_converged, warmup
+using AllocCheck: check_allocs
+using Distributions: Normal, truncated
+using JET: @test_opt
 using LogDensityProblems: LogDensityProblems, LogDensityOrder
 using Random: Xoshiro
-using Statistics: cor, mean
+using Statistics: cor, mean, std
 
 const density_methods = (
     HitAndRun(), CoordinateHitAndRun(), CoordinateHitAndRun(scan = :random), DikinWalk(),
@@ -107,5 +111,88 @@ end
         @test moments_match(r.diagnostics, zeros(2), ones(2))
         # The correlation has standard error about (1 - ρ²)/√ESS = 0.011
         @test cor(reduce(hcat, r.chains)')[1, 2] ≈ 0.8 atol = 0.06
+    end
+
+    @testset "truncated normal draws" begin
+        rng = Xoshiro(6)
+        # Inside, in both tails, far in a tail, narrow and one-sided intervals
+        for (α, β) in [(-1.0, 1.0), (-3.0, 3.0), (0.5, Inf), (-Inf, -0.5), (10.0, Inf), (5.0, 5.01), (2.0, 2.5), (-0.1, 100.0), (-Inf, Inf)]
+            z = [PolytopeSamplers.truncated_randn(rng, α, β) for _ in 1:100_000]
+            d = truncated(Normal(), α, β)
+            @test all(x -> α <= x <= β, z)
+            @test abs(mean(z) - mean(d)) < 5 * std(d) / sqrt(length(z))
+            @test std(z) ≈ std(d) rtol = 0.02
+        end
+        # Exponential and uniform chords
+        z = [PolytopeSamplers.draw_quadratic(rng, 0.0, 2.0, 0.0, 1.0) for _ in 1:100_000]
+        @test abs(mean(z) - (1 / 2 - 1 / (exp(2) - 1))) < 0.003
+        z = [PolytopeSamplers.draw_quadratic(rng, 0.0, -2.0, 0.0, 1.0) for _ in 1:100_000]
+        @test abs(mean(z) - (1 / 2 + 1 / (exp(2) - 1))) < 0.003
+        z = [PolytopeSamplers.draw_quadratic(rng, 0.0, 0.0, -1.0, 3.0) for _ in 1:100_000]
+        @test abs(mean(z) - 1) < 0.02
+    end
+
+    @testset "GaussianTarget and ExponentialTarget" begin
+        box = Polytope(fill(-1.0, 2), fill(1.0, 2))
+        t = GaussianTarget(box, [0.5, 0.0], [1.0 0.8; 0.8 1.0])
+        @test t isa Target
+        x = [0.2, -0.3]
+        r = x .- [0.5, 0.0]
+        @test LogDensityProblems.logdensity(t.logdensity, x) ≈ -(r' * inv([1.0 0.8; 0.8 1.0]) * r) / 2
+        value, g = LogDensityProblems.logdensity_and_gradient(t.logdensity, x)
+        @test g ≈ -inv([1.0 0.8; 0.8 1.0]) * r
+        @test_throws ArgumentError GaussianTarget(box, zeros(2), [1.0 2.0; 2.0 1.0])
+        @test_throws DimensionMismatch GaussianTarget(box, zeros(3), [1.0 0.0; 0.0 1.0])
+        @test_throws DimensionMismatch ExponentialTarget(box, zeros(3))
+        e = ExponentialTarget(box, [1.0, -2.0])
+        @test LogDensityProblems.logdensity(e.logdensity, x) ≈ -(0.2 - 2 * -0.3)
+        @test LogDensityProblems.logdensity_and_gradient(e.logdensity, x)[2] == [-1.0, 2.0]
+    end
+
+    @testset "exact chord steps are type stable and allocation free ($m)" for m in (HitAndRun(), CoordinateHitAndRun())
+        box = Polytope(fill(-1.0, 3), fill(1.0, 3))
+        for t in (GaussianTarget(box, zeros(3), [1.0 0.5 0.0; 0.5 1.0 0.0; 0.0 0.0 2.0]), ExponentialTarget(box, ones(3)))
+            c = PolytopeSamplers.chain_state(m, t)
+            @test c.density isa PolytopeSamplers.ZQuadratic
+            rng = Xoshiro(1)
+            @test_opt PolytopeSamplers.step!(rng, c)
+            @test isempty(check_allocs(PolytopeSamplers.step!, (typeof(rng), typeof(c))))
+        end
+    end
+
+    @testset "truncated Gaussian on a box ($m)" for m in density_methods
+        # Independent coordinates: truncated normal marginals
+        μ, σ = [0.5, 0.0, -2.0], [0.7, 0.3, 1.0]
+        t = GaussianTarget(Polytope(fill(-1.0, 3), fill(1.0, 3)), μ, [σ[i]^2 * (i == j) for i in 1:3, j in 1:3])
+        d = [truncated(Normal(μ[i], σ[i]), -1, 1) for i in 1:3]
+        for seed in 1:3
+            r = sample_until_converged(Xoshiro(seed), t, m; target_ess = 1_000)
+            @test r.converged
+            @test moments_match(r.diagnostics, mean.(d), std.(d))
+        end
+    end
+
+    @testset "ExponentialTarget on a box ($m)" for m in density_methods
+        # exp(-c x) on [-1, 1]: mean 1/c - coth(c), variance 1/c² - csch²(c)
+        c = [1.0, -5.0, 20.0]
+        t = ExponentialTarget(Polytope(fill(-1.0, 3), fill(1.0, 3)), c)
+        for seed in 1:3
+            r = sample_until_converged(Xoshiro(seed), t, m; target_ess = 1_000)
+            @test r.converged
+            @test moments_match(r.diagnostics, @.(1 / c - coth(c)), @.(sqrt(1 / c^2 - csch(c)^2)))
+        end
+    end
+
+    @testset "exact and slice draws agree on a slice ($m)" for m in (HitAndRun(), CoordinateHitAndRun())
+        # A correlated Gaussian on the simplex, where the warmup coordinates are rotated
+        μ = [0.5, 0.1, 0.4, 0.0]
+        Σ = [0.5^abs(i - j) for i in 1:4, j in 1:4] ./ 4
+        w = warmup(Polytope(zeros(4), ones(4); C = ones(1, 4), d = [1.0]))
+        Q = inv(Σ)
+        exact = sample_until_converged(Xoshiro(7), GaussianTarget(w, μ, Σ), m; target_ess = 2_000)
+        slice = sample_until_converged(Xoshiro(8), Target(w, x -> -((x - μ)' * Q * (x - μ)) / 2), m; target_ess = 2_000)
+        de, ds = exact.diagnostics, slice.diagnostics
+        @test all(@. abs(de.mean - ds.mean) < 5 * sqrt(de.mcse_mean^2 + ds.mcse_mean^2))
+        @test all(@. abs(de.std - ds.std) < 6 * sqrt(de.mcse_std^2 + ds.mcse_std^2))
     end
 end
