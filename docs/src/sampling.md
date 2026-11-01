@@ -40,6 +40,22 @@ c = sample(
 summarystats(c)
 ```
 
+The `internals` section holds the statistics of each step, from `AbstractMCMC.getstats`:
+
+| Sampler | Statistics |
+|---|---|
+| [`BilliardWalk`](@ref) | `n_reflections`, the reflections in the step |
+| [`DikinWalk`](@ref), [`VaidyaWalk`](@ref) | `is_accept`, and `acceptance_rate` so far |
+| [`CRHMC`](@ref) | `is_accept`, `acceptance_rate` and `step_size` |
+| [`HitAndRun`](@ref), [`CoordinateHitAndRun`](@ref) with a [`Target`](@ref) | `n_evaluations`, the log-density evaluations of the slice sampler |
+
+With a [`Target`](@ref), every sampler also reports `lp`, the log density at the point.
+The uniform hit-and-run methods report none.
+
+```@example sampling
+summarystats(c; sections = :internals)
+```
+
 ## Diagnostics
 
 Consecutive points of a chain are correlated, so `n` points carry less information than

@@ -122,11 +122,14 @@ mutable struct HitAndRunState{M <: AbstractHitAndRun, D}
     n_seen::Int # points in the running mean
     steps::Int # steps taken, for refreshing the slacks
     next_coordinate::Int # for the cyclic scan
+    evaluations::Int # log-density evaluations in the last step
 end
 
 chain_state(method::AbstractHitAndRun, w::Warmup) = HitAndRunState(method, w, nothing)
 
 AbstractMCMC.getparams(c::HitAndRunState) = copy(c.x)
+AbstractMCMC.getstats(::HitAndRunState{<:AbstractHitAndRun, Nothing}) = (;)
+AbstractMCMC.getstats(c::HitAndRunState) = (; lp = c.logp, n_evaluations = c.evaluations)
 
 function chain_state(method::Union{HitAndRun, CoordinateHitAndRun}, t::Target)
     return HitAndRunState(method, t.warmup, chain_density(t))
@@ -143,7 +146,7 @@ function HitAndRunState(method::AbstractHitAndRun, w::Warmup, density)
     center = isempty(zpoints) ? zeros(k) : vec(mean(zpoints; dims = 2))
     return HitAndRunState(
         method, w, density, zeros(k), NaN, zeros(k), copy(w.center), zeros(k), copy(w.h),
-        zeros(m), center, zpoints, size(zpoints, 2), 0, 1,
+        zeros(m), center, zpoints, size(zpoints, 2), 0, 1, 0,
     )
 end
 
@@ -201,8 +204,14 @@ function draw_on_chord(rng, ::HitAndRunState{<:AbstractHitAndRun, Nothing}, tmin
 end
 
 function draw_on_chord(rng, c::HitAndRunState{<:AbstractHitAndRun, <:ZDensity}, tmin, tmax, direction)
-    isnan(c.logp) && (c.logp = logdensity_z(c.density, c.z))
-    logp(t) = logdensity_z(c.density, chord_point!(c.zt, c.z, t, direction))
+    if isnan(c.logp)
+        c.logp = logdensity_z(c.density, c.z)
+        c.evaluations += 1
+    end
+    function logp(t)
+        c.evaluations += 1
+        return logdensity_z(c.density, chord_point!(c.zt, c.z, t, direction))
+    end
     t, c.logp = slice_on_chord(rng, logp, c.logp, tmin, tmax)
     return t
 end
@@ -224,6 +233,7 @@ end
 # from the density, and update the running mean and `c.x`
 function step!(rng::AbstractRNG, c::HitAndRunState)
     w = c.warmup
+    c.evaluations = 0
     if direction!(rng, c)
         refresh_slack!(c)
         mul!(c.Gu, w.G, c.u)
@@ -244,6 +254,7 @@ end
 # and the cyclic scan.
 function step!(rng::AbstractRNG, c::HitAndRunState{CoordinateHitAndRun})
     w = c.warmup
+    c.evaluations = 0
     k = length(c.z)
     if k > 0
         refresh_slack!(c)
@@ -320,10 +331,19 @@ function start_state(method::PolytopeSampler, model, x::AbstractVector{<:Real})
 end
 
 # AbstractMCMC interface. Every state keeps the current point in `x`, which `getparams`
-# returns for callbacks. The first step starts from `initial_params` when given, otherwise
+# returns, and `getstats` returns the statistics of its last step; a transition holds both. The first step starts from `initial_params` when given, otherwise
 # from a random point of the largest ball inside the polytope, so that the chains of an
 # ensemble start apart, as R̂ assumes.
 const SamplingModel = Union{Warmup, Target}
+
+# A point of a chain with the statistics of the step that reached it, what `sample` collects
+# and `AbstractMCMC.steps` returns
+struct Transition{S <: NamedTuple}
+    x::Vector{Float64}
+    stats::S
+end
+
+transition(c) = Transition(copy(c.x), AbstractMCMC.getstats(c))
 
 function AbstractMCMC.step(
         rng::AbstractRNG, model::SamplingModel, method::PolytopeSampler;
@@ -332,7 +352,7 @@ function AbstractMCMC.step(
     start = something(initial_params, rng)
     c = step!(rng, start_state(method, model, start))
     check_state(c)
-    return copy(c.x), c
+    return transition(c), c
 end
 
 # Samplers may report problems found during their steps here, outside the hot loop
@@ -341,18 +361,18 @@ check_state(c) = c
 function AbstractMCMC.step(rng::AbstractRNG, ::SamplingModel, ::PolytopeSampler, c; kwargs...)
     step!(rng, c)
     check_state(c)
-    return copy(c.x), c
+    return transition(c), c
 end
 
 # Return the points of a chain as the columns of a matrix, unless another `chain_type` is
 # asked for
 function AbstractMCMC.bundle_samples(
-        samples::Vector{Vector{Float64}}, ::SamplingModel, ::PolytopeSampler, state, ::Type{Any};
+        samples::Vector{<:Transition}, ::SamplingModel, ::PolytopeSampler, state, ::Type{Any};
         kwargs...,
     )
     X = Matrix{Float64}(undef, length(state.x), length(samples))
-    for (j, x) in enumerate(samples)
-        X[:, j] = x
+    for (j, t) in enumerate(samples)
+        X[:, j] = t.x
     end
     return X
 end
@@ -379,7 +399,10 @@ size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
 chains until they converge, see [`sample_until_converged`](@ref).
 
 With MCMCChains.jl loaded, `chain_type = Chains` returns an `MCMCChains.Chains` (one for all
-chains of an ensemble), with parameters named `x[1]`, `x[2]`, … or by `param_names`.
+chains of an ensemble), with parameters named `x[1]`, `x[2]`, … or by `param_names`, and the
+statistics of each step (`AbstractMCMC.getstats`, such as `is_accept` or `n_reflections`) in
+its `internals` section. `AbstractMCMC.steps` and callbacks receive each point as a transition
+with fields `x` and `stats`.
 
 This is `AbstractMCMC.sample` (also `StatsBase.sample`); its other keyword arguments, such
 as `initial_state` and `callback`, apply.

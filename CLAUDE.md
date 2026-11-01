@@ -40,7 +40,8 @@ use is sampling the interaction strengths of food webs consistent with an equili
 - `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
   Carlo standard errors per coordinate via MCMCDiagnosticTools.
 - `ext/PolytopeSamplersMCMCChainsExt.jl`: `bundle_samples` for `chain_type =
-  MCMCChains.Chains`, loaded with MCMCChains.
+  MCMCChains.Chains`, loaded with MCMCChains, with each step's `getstats` in `internals`.
+  A new sampler state implements `getparams` and `getstats`.
 - `test/correctness.jl`: checks adapted from the test suites of volesti, hopsy, hops and
   PolyRound (cube, skinny cube, simplex, vertex starts, Chebyshev centers). Add the checks
   of a reference implementation here when porting a new method.
