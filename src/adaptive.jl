@@ -58,18 +58,6 @@ end
 default_method(::Warmup) = BilliardWalk()
 default_method(::Target) = HitAndRun()
 
-# A chain state at a uniform random point of the largest ball inside the polytope
-function start_state(method::PolytopeSampler, model, rng::AbstractRNG)
-    w = geometry(model)
-    state = chain_state(method, model)
-    k = length(state.z)
-    if k > 0
-        u = randn(rng, k)
-        state.z .= u .* (w.radius * rand(rng)^(1 / k) / norm(u))
-    end
-    return update_x!(state)
-end
-
 # `count` more points of a chain, keeping every `thinning`-th step
 function run_chain!(rng, state, count, thinning)
     X = Matrix{Float64}(undef, length(state.x), count)

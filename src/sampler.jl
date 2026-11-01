@@ -69,8 +69,9 @@ of the chain makes `moves` moves (default: the dimension `k` of the warmup), so 
 about as much as one of [`HitAndRun`](@ref). Moves per effective sample grow as `k²`.
 
 A chain started exactly at a vertex never moves when no coordinate axis points into the
-polytope there, as on a simplex; [`sample`](@ref) starts chains at the center and
-[`sample_until_converged`](@ref) inside the largest inscribed ball, away from vertices.
+polytope there, as on a simplex; [`sample`](@ref) and [`sample_until_converged`](@ref)
+start chains inside the largest inscribed ball, away from vertices, unless given
+`initial_params`.
 
 Haraldsdóttir, H. S., Cousins, B., Thiele, I., Fleming, R. M. T. & Vempala, S. (2017).
 CHRR: coordinate hit-and-run with rounding for uniform sampling of constraint-based models.
@@ -294,11 +295,40 @@ function finish_step!(c::HitAndRunState)
     return c
 end
 
-# AbstractMCMC interface. The first step starts from the warmup center.
+# A chain state at a uniform random point of the largest ball inside the polytope
+function start_state(method::PolytopeSampler, model, rng::AbstractRNG)
+    w = geometry(model)
+    state = chain_state(method, model)
+    k = length(state.z)
+    if k > 0
+        u = randn(rng, k)
+        state.z .= u .* (w.radius * rand(rng)^(1 / k) / norm(u))
+    end
+    return update_x!(state)
+end
+
+# A chain state at `x`, a point of the polytope in its original coordinates. A feasible `x`
+# satisfies every equality that holds over the polytope, so it lies on `center + transform * z`.
+function start_state(method::PolytopeSampler, model, x::AbstractVector{<:Real})
+    w = geometry(model)
+    x in w.polytope || throw(ArgumentError("initial_params is outside the polytope"))
+    state = chain_state(method, model)
+    isempty(state.z) || (state.z .= w.transform \ (x .- w.center))
+    return update_x!(state)
+end
+
+# AbstractMCMC interface. The first step starts from `initial_params` when given, otherwise
+# from a random point of the largest ball inside the polytope, so that the chains of an
+# ensemble start apart, as R̂ assumes.
 const SamplingModel = Union{Warmup, Target}
 
-function AbstractMCMC.step(rng::AbstractRNG, model::SamplingModel, method::PolytopeSampler; kwargs...)
-    c = step!(rng, chain_state(method, model))
+function AbstractMCMC.step(
+        rng::AbstractRNG, model::SamplingModel, method::PolytopeSampler;
+        initial_params = nothing, kwargs...,
+    )
+    start = something(initial_params, rng)
+    c = step!(rng, start_state(method, model, start))
+    check_state(c)
     return copy(c.x), c
 end
 
@@ -336,7 +366,10 @@ Draw `n` points from the uniform distribution on a polytope, or from the density
 and return a vector of matrices. `method` is [`CoordinateHitAndRun`](@ref),
 [`BilliardWalk`](@ref), [`HitAndRun`](@ref) or [`ACHR`](@ref).
 
-Every chain starts at the warmup center, discards `discard_initial` steps and then keeps
+Every chain starts at a uniform random point of the largest ball inside the polytope, so
+the chains of an ensemble start apart, as R̂ in [`diagnostics`](@ref) assumes; pass
+`initial_params`, a point of the polytope (a vector of points, one per chain, with an
+ensemble), to choose the start. The chain then discards `discard_initial` steps and keeps
 every `thinning`-th point. Consecutive points are correlated; check the effective sample
 size with [`diagnostics`](@ref). Given a [`Polytope`](@ref), `sample` calls
 [`warmup`](@ref) once for all chains with the given `extremes` and `rounding`. To run
@@ -351,6 +384,7 @@ P = Polytope([0.0, 0.0], [1.0, 1.0]; A = [1.0 1.0], b = [1.0])  # a triangle
 X = sample(Xoshiro(1), P, HitAndRun(), 1000; discard_initial = 100, thinning = 10)
 chains = sample(Xoshiro(1), P, ACHR(), MCMCThreads(), 1000, 4; progress = false)
 diagnostics(chains)
+X = sample(Xoshiro(1), P, HitAndRun(), 1000; initial_params = [0.1, 0.1])
 ```
 """
 function AbstractMCMC.sample(
