@@ -3,22 +3,18 @@
 # with an equilibrium at the biomasses `x`, and its PolytopeSamplers.jl extension converts it
 # to a `Polytope`. Run with `just example constrained_foodweb`.
 
+include("foodweb_study.jl")
+
 using FoodWebs: community_matrix, feasible_growth_rates, generalized_cascade_network,
-    spectral_abscissa, steady_state_biomass
+    spectral_abscissa
 using PolytopeSamplers: ACHR, BilliardWalk, CoordinateHitAndRun, HitAndRun, MCMCThreads,
     Polytope, diagnostics, mmcs, sample, warmup
 using Random: Xoshiro
 using Statistics: mean
 
-# The constraints of the constrained food webs of Gellner, McCann & Hastings
-# (https://github.com/gabrielgellner/constrained-foodwebs): every species but the top
-# predators is self-regulated, a predator gains at most what its prey loses, and every
-# interaction strength is in [0, 5]
-const constraints = (; self_regulation = :all_but_top, efficiency = (0.0, 1.0), bounds = (0.0, 5.0))
-
 let rng = Xoshiro(2026), S = 15
     web = generalized_cascade_network(rng, S, 0.15; basal_paths = true)
-    x = 20 .* steady_state_biomass(web; efficiency = 0.5)
+    x = pyramid_biomass(rng, web)
 
     # Growth rates redrawn until the equilibrium is feasible
     (; communities, draws) = feasible_growth_rates(rng, web, x; constraints...)
