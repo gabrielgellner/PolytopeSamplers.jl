@@ -29,6 +29,7 @@ sample(::AbstractRNG, ::Polytope, ::PolytopeSampler, ::Integer)
 sample_until_converged
 mmcs
 diagnostics
+volume
 ```
 
 ## Samplers
