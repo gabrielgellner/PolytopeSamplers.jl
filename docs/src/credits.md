@@ -8,7 +8,7 @@ comment.
 
 | Project | License | Adapted for |
 |---|---|---|
-| [volesti](https://github.com/GeomScale/volesti) | LGPL-3.0 | maximum-volume ellipsoid, accelerated billiard walk, MMCS rounding phases, sampling tests |
+| [volesti](https://github.com/GeomScale/volesti) | LGPL-3.0 | maximum-volume ellipsoid, accelerated billiard walk, MMCS rounding phases, cooling-balls volume schedule, sampling tests |
 | [PolyRound](https://gitlab.com/csb.ethz/PolyRound) | MIT | ellipsoid rounding safeguards, tests |
 | [hops / hopsy](https://github.com/modsim/hopsy) | MIT | coordinate hit-and-run slack updates and cyclic scan, tests |
 | [polytopewalk](https://github.com/ethz-randomwalk/polytopewalk) | MIT | Dikin and Vaidya walks |
@@ -16,6 +16,10 @@ comment.
 
 ## References
 
+- Chalkis, A., Emiris, I. Z. & Fisikopoulos, V. (2023). A practical algorithm for volume
+  estimation based on billiard trajectories and simulated annealing. ACM Journal of
+  Experimental Algorithmics 28.
+  [doi:10.1145/3584182](https://doi.org/10.1145/3584182)
 - Chalkis, A., Fisikopoulos, V., Tsigaridas, E. & Zafeiropoulos, H. (2021). Geometric
   algorithms for sampling the flux space of metabolic networks. SoCG 2021, 21:1–21:16.
   [doi:10.4230/LIPIcs.SoCG.2021.21](https://doi.org/10.4230/LIPIcs.SoCG.2021.21)

@@ -9,11 +9,11 @@ using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
     MAX_SENSE, MIN_SENSE, Model,
     is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
     termination_status, value
-using LinearAlgebra: Diagonal, Hermitian, I, Symmetric, UpperTriangular, cholesky, cholesky!, diag, dot, eigvals, issuccess, ldiv!, lmul!, lu!, mul!, norm,
+using LinearAlgebra: Diagonal, Hermitian, I, Symmetric, UpperTriangular, cholesky, cholesky!, diag, dot, eigvals, issuccess, ldiv!, lmul!, logdet, lu!, mul!, norm,
     normalize!, nullspace, pinv, rank, svd, transpose!
 using Random: AbstractRNG, Xoshiro, default_rng, randexp, randn!
 using MCMCDiagnosticTools: ess_rhat, mcse
-using Statistics: mean, std
+using Statistics: mean, quantile, std
 
 include("polytope.jl")
 export Polytope, isfeasible
@@ -39,5 +39,8 @@ export diagnostics
 
 include("adaptive.jl")
 export mmcs, sample_until_converged
+
+include("volume.jl")
+export volume
 
 end

@@ -66,3 +66,4 @@ size(X)
 - [Choosing a sampler](@ref) compares the methods with benchmarks.
 - [Non-uniform targets](@ref) samples densities `exp(ℓ(x))` on a polytope.
 - [Parallel sampling](@ref) runs chains, or many polytopes, on threads.
+- [Volume](@ref) estimates the volume of a polytope with a standard error.

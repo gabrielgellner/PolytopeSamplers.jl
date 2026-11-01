@@ -22,6 +22,7 @@ makedocs(;
             "Choosing a sampler" => "samplers.md",
             "Non-uniform targets" => "targets.md",
             "Parallel sampling" => "parallel.md",
+            "Volume" => "volume.md",
         ],
         "Example: constrained food webs" => "foodwebs.md",
         "Background" => [

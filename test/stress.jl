@@ -12,7 +12,7 @@
 #   equalities, many facets (cross-polytope), equality polytopes (Birkhoff), 200 dimensions.
 # - Two converged samplers agree on a random polytope.
 
-using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC,
+using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CoordinateHitAndRun, CRHMC, volume,
     DikinWalk,
     HitAndRun, VaidyaWalk,
     MCMCSerial, Polytope, diagnostics, mmcs, sample, warmup
@@ -322,5 +322,20 @@ simplex_std(n) = sqrt((n - 1) / (n^2 * (n + 1)))
         @test a.max_rhat < 1.01 && b.max_rhat < 1.01
         @test all(@. abs(a.mean - b.mean) < 5 * sqrt(a.mcse_mean^2 + b.mcse_mean^2))
         @test all(@. abs(a.std - b.std) < 6 * sqrt(a.mcse_std^2 + b.mcse_std^2))
+    end
+
+    @testset "volume error bars cover the exact volume" begin
+        # z-scores of the log volume over 50 seeds, on polytopes needing two to four phases
+        for (P, exact) in [
+                (Polytope(zeros(40), ones(40)), 0.0),
+                (Polytope(zeros(20), ones(20); A = ones(1, 20), b = [1.0]), -sum(log, 1:20)),
+                (Polytope(zeros(15), ones(15); C = ones(1, 15), d = [1.0]), log(15) / 2 - sum(log, 1:14)),
+            ]
+            w = warmup(P)
+            z = [(v = volume(Xoshiro(100 + s), w); (v.log_volume - exact) / v.log_stderr) for s in 1:50]
+            @printf "volume z-scores: rms %.2f, mean %.2f, %d of 50 within 2\n" sqrt(mean(abs2, z)) mean(z) count(<(2), abs.(z))
+            @test 0.7 < sqrt(mean(abs2, z)) < 1.4
+            @test count(<(2), abs.(z)) >= 42
+        end
     end
 end

@@ -39,6 +39,9 @@ use is sampling the interaction strengths of food webs consistent with an equili
   above `step!`).
 - `src/adaptive.jl`: `sample_until_converged` (chains doubled until ESS and R̂ targets)
   and `mmcs`.
+- `src/volume.jl`: `volume`, multiphase Monte Carlo with cooling balls (schedule adapted from
+  volesti), each ratio from coordinate hit-and-run chains on polytope ∩ ball run to a Monte
+  Carlo standard error, giving a standard error of the log volume.
 - `src/diagnostics.jl`: `diagnostics`, ESS, R̂, means, standard deviations and their Monte
   Carlo standard errors per coordinate via MCMCDiagnosticTools.
 - `ext/PolytopeSamplersMCMCChainsExt.jl`: `bundle_samples` for `chain_type =

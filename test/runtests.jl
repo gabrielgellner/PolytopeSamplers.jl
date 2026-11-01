@@ -30,4 +30,5 @@ AbstractMCMC.setprogress!(false)
     include("adaptive.jl")
     include("crhmc.jl")
     include("density.jl")
+    include("volume.jl")
 end
