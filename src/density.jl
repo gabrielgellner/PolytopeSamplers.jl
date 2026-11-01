@@ -6,13 +6,15 @@ The distribution on a polytope with density proportional to `exp(ℓ(x))`, a mod
 [`sample`](@ref) and [`sample_until_converged`](@ref). Given a [`Polytope`](@ref), the
 other keyword arguments go to [`warmup`](@ref).
 
-`ℓ` is a function of the vector `x` of the polytope's variables, or an object implementing
+`ℓ` is a function of the vector `x` of the polytope's variables, evaluated at points clamped
+to the polytope's bounds, or an object implementing
 the LogDensityProblems.jl interface (`logdensity`, `dimension`, `capabilities`, and
 `logdensity_and_gradient` for gradients). For a function, pass `gradient = (g, x) -> ...`,
 which fills `g` with `∇ℓ(x)`, to use [`CRHMC`](@ref). `ℓ` is called from every chain, on
 separate threads when Julia has them.
 
-[`HitAndRun`](@ref) and [`CoordinateHitAndRun`](@ref) draw each point on the chord from
+A log density of `+Inf` or `NaN` counts as outside the support, as for a density that
+diverges at a face. [`HitAndRun`](@ref) and [`CoordinateHitAndRun`](@ref) draw each point on the chord from
 the density along it by slice sampling, so they leave the target invariant for any `ℓ`
 ([`GaussianTarget`](@ref) and [`ExponentialTarget`](@ref) are drawn exactly on chords);
 [`DikinWalk`](@ref) and [`VaidyaWalk`](@ref) add `ℓ` to their Metropolis ratio;
@@ -169,19 +171,31 @@ ZDensity(t::Target) = ZDensity(t.logdensity, t.warmup, copy(t.warmup.center))
 
 has_gradient(d::ZDensity) = LogDensityProblems.capabilities(d.ℓ) != LogDensityOrder{0}()
 
+# `center + T z`, clamped to the bounds of the polytope: on a face `x = center + T z` can fall
+# outside a bound by rounding error, where a density such as `log(xᵢ)` is undefined
 function to_x!(d::ZDensity, z)
     mul!(d.x, d.warmup.transform, z)
-    d.x .+= d.warmup.center
+    P = d.warmup.polytope
+    for i in eachindex(d.x)
+        d.x[i] = clamp(d.x[i] + d.warmup.center[i], P.lower[i], P.upper[i])
+    end
     return d.x
 end
 
-logdensity_z(d::ZDensity, z) = Float64(LogDensityProblems.logdensity(d.ℓ, to_x!(d, z)))
+# The log density at `z`, with `+Inf` and `NaN` taken as `-Inf`. A density that diverges at a
+# face, such as a gamma density with shape below 1 at `xᵢ = 0`, is infinite only on a set of
+# measure zero, so excluding those points leaves the target unchanged; a chain that moved onto
+# one could never accept another point.
+function logdensity_z(d::ZDensity, z)
+    value = Float64(LogDensityProblems.logdensity(d.ℓ, to_x!(d, z)))
+    return value < Inf ? value : -Inf
+end
 
 # Add `scale * ∇_z ℓ(z) = scale * Tᵀ ∇_x ℓ(x)` to `out`; return ℓ(z)
 function add_gradient_z!(out, d::ZDensity, z, scale)
     value, g = LogDensityProblems.logdensity_and_gradient(d.ℓ, to_x!(d, z))
     mul!(out, d.warmup.transform', g, scale, 1.0)
-    return Float64(value)
+    return value < Inf ? Float64(value) : -Inf
 end
 
 # A quadratic log density in the coordinates `z` of a warmup, `-zᵀ Q z / 2 - gᵀ z` up to a

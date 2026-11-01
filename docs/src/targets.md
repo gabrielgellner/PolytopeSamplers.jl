@@ -81,6 +81,21 @@ r.diagnostics.mean, r.diagnostics.mcse_mean
 Truncated to `[-1, 1]`, the exact means are `0.5 - (φ(0.5) - φ(-1.5)) / (Φ(0.5) - Φ(-1.5)) ≈ 0.144`
 and 0, for the standard normal density `φ` and distribution function `Φ`.
 
+## Densities that diverge at a face
+
+A gamma density with shape below 1, `(k - 1) log(xᵢ) - xᵢ/θ`, is infinite at the face
+`xᵢ = 0`. Samplers move in the coordinates of the warmup, and `x = center + T z` resolves a
+coordinate only to about `1e-16` of its scale, so chains reach points where a coordinate
+rounds to 0 or just below. `ℓ` is evaluated at `x` clamped to the polytope's bounds, so
+`log(xᵢ)` stays defined, and a log density of `+Inf` or `NaN` counts as outside the support:
+those points have probability zero, and a chain that accepted one would never move again.
+
+With these, hit-and-run, coordinate hit-and-run, CRHMC and the barrier walks match the
+moments of truncated gamma densities with shape 1/4 on a box. Products of such densities on
+a polytope of much lower dimension than its number of variables concentrate near vertices,
+where many coordinates are 0 together; chains then settle near different vertices, and R̂
+stays high however long they run.
+
 ## Calibration
 
 Over 20 seeds, on a Dirichlet distribution on a simplex, truncated exponentials on a box
