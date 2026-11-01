@@ -18,6 +18,8 @@ Warmup
 
 ```@docs
 Target
+GaussianTarget
+ExponentialTarget
 ```
 
 ## Sampling

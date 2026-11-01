@@ -20,7 +20,9 @@ use is sampling the interaction strengths of food webs consistent with an equili
   from volesti and PolyRound), the ellipsoid rounding loop, and rounding from billiard-walk
   samples (the MMCS phases, adapted from volesti).
 - `src/density.jl`: `Target` (a warmup with a log density, LogDensityProblems or a
-  function), its evaluation in `z`, and slice sampling on a chord. States carry the density
+  function), its evaluation in `z`, slice sampling on a chord, and `GaussianTarget` and
+  `ExponentialTarget`, whose quadratic log densities hit-and-run draws exactly on a chord
+  (truncated normal and exponential samplers of Robert 1995). States carry the density
   as a type parameter, `nothing` for the uniform distribution, so the uniform steps keep no
   density code and stay allocation free.
 - `src/sampler.jl`: `PolytopeSampler`, `HitAndRun`, `ACHR`, `CoordinateHitAndRun` (slack
