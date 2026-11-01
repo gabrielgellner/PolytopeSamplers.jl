@@ -178,8 +178,8 @@ sets the time; batches of independent problems keep gaining.
 
 `examples/constrained_foodweb.jl` samples the interaction strengths of a food web consistent
 with a given equilibrium, the problem of
-[constrained-foodwebs](https://github.com/gabrielgellner/constrained-foodwebs), with webs from
-[FoodWebs.jl](https://github.com/gabrielgellner/FoodWebs.jl). Run it with
+[constrained-foodwebs](https://github.com/gabrielgellner/constrained-foodwebs), with the webs and
+the polytope from [FoodWebs.jl](https://github.com/gabrielgellner/FoodWebs.jl). Run it with
 `just example constrained_foodweb`; `just example foodweb_replicates` runs 80 webs in
 parallel.
 
