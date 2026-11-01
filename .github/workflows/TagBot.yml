@@ -1,0 +1,24 @@
+# Tags a version and creates its GitHub release when the General registry registers it.
+# `just release-4-merge` tags and releases first, so TagBot finds the tag and skips it; it
+# covers versions registered without the release recipes.
+name: TagBot
+on:
+  issue_comment:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      lookback:
+        default: "3"
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+jobs:
+  TagBot:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JuliaRegistries/TagBot@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

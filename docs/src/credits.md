@@ -4,6 +4,11 @@ PolytopeSamplers.jl is licensed under GPL-3.0-or-later, so that it can adapt cod
 samplers below. Each adapted function names its source, file, commit and license in a
 comment.
 
+## Citing PolytopeSamplers.jl
+
+Cite the version you used, with the DOI of its Zenodo archive. The repository's
+`CITATION.cff` holds the metadata.
+
 ## Adapted code
 
 | Project | License | Adapted for |

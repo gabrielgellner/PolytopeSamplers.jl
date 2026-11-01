@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use PolytopeSamplers.jl, please cite the version you used with the DOI of its Zenodo archive."
+title: "PolytopeSamplers.jl: Markov chain Monte Carlo sampling and volume estimation of convex polytopes"
+type: software
+authors:
+  - family-names: Gellner
+    given-names: Gabriel
+    email: gabrielgellner@gmail.com
+license: GPL-3.0-or-later
+repository-code: "https://github.com/gabrielgellner/PolytopeSamplers.jl"
+url: "https://gabrielgellner.github.io/PolytopeSamplers.jl/dev/"
+keywords:
+  - Julia
+  - MCMC
+  - polytope
+  - hit-and-run
+  - billiard walk
+  - volume estimation
+  - food webs
