@@ -1,14 +1,26 @@
 # PolytopeSamplers.jl
 
-Uniform sampling of convex polytopes by Markov chain Monte Carlo: the billiard walk,
-coordinate hit-and-run with rounding (CHRR), hit-and-run and artificial centering hit-and-run
-(ACHR). Linear programs for the warmup are solved with
-[HiGHS](https://highs.dev). The package was called HRMCMC.jl until 2026.
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://gabrielgellner.github.io/PolytopeSamplers.jl/dev/)
+[![CI](https://github.com/gabrielgellner/PolytopeSamplers.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/gabrielgellner/PolytopeSamplers.jl/actions/workflows/CI.yml)
+
+Markov chain Monte Carlo sampling of the uniform distribution, or a density, on a convex
+polytope: the billiard walk, coordinate hit-and-run with rounding (CHRR), hit-and-run,
+artificial centering hit-and-run (ACHR), the Dikin and Vaidya walks, and constrained
+Riemannian Hamiltonian Monte Carlo (CRHMC), with convergence diagnostics. Linear programs
+for the warmup are solved with [HiGHS](https://highs.dev). The package was called HRMCMC.jl
+until 2026.
 
 ```julia
 using Pkg
 Pkg.add(url = "https://github.com/gabrielgellner/PolytopeSamplers.jl")
 ```
+
+## Documentation
+
+The [manual](https://gabrielgellner.github.io/PolytopeSamplers.jl/dev/) covers defining
+polytopes, sampling and convergence, choosing a sampler (with benchmarks), non-uniform
+targets, parallel sampling, how the samplers are tested, and the full API. Build it locally
+with `just docs`.
 
 ## Usage
 
@@ -193,6 +205,7 @@ Tasks are run with [just](https://github.com/casey/just):
 just setup      # install Runic and JETLS as Julia apps, instantiate environments
 just fmt        # format with Runic
 just ci         # formatting check, JETLS lint and tests; run before every push and merge
+just docs       # build the documentation and open it
 just stress     # convergence stress tests and mixing-cost scaling (about 10 minutes)
 ```
 
