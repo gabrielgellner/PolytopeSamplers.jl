@@ -1,33 +1,30 @@
 # Many replicates of the constrained food web study in parallel, one per thread: a web,
-# biomasses, growth rates redrawn until the equilibrium is feasible, chains until 1000
-# effective samples, and the fraction of stable community matrices. Each replicate seeds
-# its own generator, so the results do not depend on the number of threads.
+# steady-state biomasses, growth rates redrawn until the equilibrium is feasible, billiard-walk
+# chains until 1000 effective samples, and the fraction of stable community matrices. Each
+# replicate seeds its own generator, so the results do not depend on the number of threads.
 # Run with `just example foodweb_replicates` (all threads).
 
-include("foodweb_polytope.jl")
-
+using FoodWebs: feasible_growth_rates, generalized_cascade_network, sample_communities,
+    spectral_abscissa, steady_state_biomass
 using LinearAlgebra: BLAS
-using PolytopeSamplers: sample_until_converged, warmup
+using PolytopeSamplers: PolytopeSamplers
+using Random: Xoshiro
+using Statistics: mean
 
 # Each replicate runs on one thread; BLAS threads would compete with them
 BLAS.set_num_threads(1)
 
+# The constraints of the constrained food webs of Gellner, McCann & Hastings; see
+# `constrained_foodweb.jl`
+const constraints = (; self_regulation = :all_but_top, efficiency = (0.0, 1.0), bounds = (0.0, 5.0))
+
 function replicate(seed; S = 15, C = 0.15)
     rng = Xoshiro(seed)
     web = generalized_cascade_network(rng, S, C; basal_paths = true)
-    x = pyramid_biomass(rng, web)
-    basal = basal_species(web)
-    signs = interaction_signs(web)
-    while true
-        r = [i in basal ? 5 * rand(rng) : -rand(rng) for i in 1:S]
-        P, links = foodweb_polytope(web, x, r)
-        isempty(P) && continue
-        w = warmup(rng, P; extremes = false)
-        result = sample_until_converged(rng, w; target_ess = 1_000)
-        λ = [spectral_abscissa(community_matrix(α, links, signs, x)) for X in result.chains for α in eachcol(X)]
-        return mean(<(0), λ)
-    end
-    return
+    x = 20 .* steady_state_biomass(web; efficiency = 0.5)
+    (; communities) = feasible_growth_rates(rng, web, x; constraints...)
+    result = sample_communities(rng, communities; target_ess = 1_000)
+    return mean(spectral_abscissa(c.J) < 0 for c in result.communities)
 end
 
 let N = 80
