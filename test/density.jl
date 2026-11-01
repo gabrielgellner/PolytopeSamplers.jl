@@ -1,8 +1,8 @@
 using PolytopeSamplers: PolytopeSamplers, ACHR, BilliardWalk, CRHMC, CoordinateHitAndRun,
-    DikinWalk, ExponentialTarget, GaussianTarget, HitAndRun, Polytope, Target, VaidyaWalk, sample,
-    sample_until_converged, warmup
+    DikinWalk, ExponentialTarget, GaussianTarget, HitAndRun, MCMCSerial, Polytope, Target, VaidyaWalk,
+    diagnostics, sample, sample_until_converged, warmup
 using AllocCheck: check_allocs
-using Distributions: Normal, truncated
+using Distributions: Gamma, Normal, cdf, truncated
 using JET: @test_opt
 using LogDensityProblems: LogDensityProblems, LogDensityOrder
 using Random: Xoshiro
@@ -111,6 +111,40 @@ end
         @test moments_match(r.diagnostics, zeros(2), ones(2))
         # The correlation has standard error about (1 - ρ²)/√ESS = 0.011
         @test cor(reduce(hcat, r.chains)')[1, 2] ≈ 0.8 atol = 0.06
+    end
+
+    @testset "densities that diverge at a face ($m)" for m in density_methods
+        # gamma(1/4, θ) on each coordinate of [0, 1]³ diverges at xᵢ = 0; rounding puts chains
+        # on or just past that face, where the density is infinite or log(xᵢ) is undefined
+        θ, k = [0.5, 1.0, 2.0], 0.25
+        t = Target(
+            Polytope(zeros(3), ones(3)), x -> sum(@. (k - 1) * log(x) - x / θ);
+            gradient = (g, x) -> (g .= (k - 1) ./ x .- 1 ./ θ),
+        )
+        n = m isa Union{DikinWalk, VaidyaWalk} ? 4_000 : 20_000
+        chains = sample(Xoshiro(1), t, m, MCMCSerial(), n, 4)
+        # no chain stops moving
+        @test all(X -> !all(==(X[:, end]), eachcol(X[:, (end - 99):end])), chains)
+        if !(m isa Union{DikinWalk, VaidyaWalk})
+            # truncated gamma moments, E[xʲ] = θʲ Γ(k + j)/Γ(k) F_{k+j}(1)/F_k(1)
+            F(a, θi) = cdf(Gamma(a, θi), 1)
+            μ = [k * θi * F(k + 1, θi) / F(k, θi) for θi in θ]
+            m2 = [k * (k + 1) * θi^2 * F(k + 2, θi) / F(k, θi) for θi in θ]
+            @test moments_match(diagnostics(chains), μ, sqrt.(m2 .- μ .^ 2))
+        end
+    end
+
+    @testset "log densities at faces" begin
+        P = Polytope(zeros(2), ones(2))
+        w = warmup(P; rounding = false)
+        d = PolytopeSamplers.ZDensity(Target(w, x -> sum(log, x)))
+        # a z just outside the face x₁ = 0 maps to x₁ = 0, where log(0) = -Inf
+        z = (w.transform \ ([-1.0e-17, 0.5] .- w.center))
+        @test PolytopeSamplers.to_x!(d, z)[1] == 0
+        @test PolytopeSamplers.logdensity_z(d, z) == -Inf
+        # infinite and undefined log densities are outside the support
+        @test PolytopeSamplers.logdensity_z(PolytopeSamplers.ZDensity(Target(w, x -> Inf)), zeros(2)) == -Inf
+        @test PolytopeSamplers.logdensity_z(PolytopeSamplers.ZDensity(Target(w, x -> NaN)), zeros(2)) == -Inf
     end
 
     @testset "truncated normal draws" begin

@@ -128,7 +128,7 @@ end
 # Warn, once per chain, when a chain may be stuck; called outside the allocation-free step
 function check_state(c::CRHMCState)
     if c.stuck
-        @warn "CRHMC: steps keep failing at the smallest step size; the chain may be stuck. Use a rounded warmup for badly scaled polytopes."
+        @warn "CRHMC: steps keep failing at the smallest step size; the chain may be stuck. Use a rounded warmup for badly scaled polytopes; a log density that diverges at a face, such as a gamma density with shape below 1, has no smooth gradient there, and hit-and-run suits it better."
         c.stuck = false
     end
     return c
