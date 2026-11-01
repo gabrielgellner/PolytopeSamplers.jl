@@ -16,8 +16,10 @@ own random number generator, seeded from `rng`, so the result does not depend on
 number of threads; chains run on separate threads when Julia has them.
 
 Returns a named tuple: `chains` (one matrix per chain, a point per column), `diagnostics`
-(see [`diagnostics`](@ref)), `n` (points kept per chain) and `converged`. A warning is
-logged when the chains have not converged by `max_n`.
+(see [`diagnostics`](@ref)), `n` (points kept per chain), `converged` and `fixed`, the
+coordinates that do not vary on the slice. `converged` covers the varying coordinates only;
+`fixed` lists the others, which [`warmup`](@ref) holds at its center. A warning is logged
+when the chains have not converged by `max_n`.
 """
 function sample_until_converged(
         rng::AbstractRNG, model::Union{Warmup, Target}, method::PolytopeSampler = default_method(model);
@@ -42,7 +44,7 @@ function sample_until_converged(
         converged = all(isnan, d.ess) || (d.min_ess >= target_ess && d.max_rhat < max_rhat)
         if converged || kept >= max_n
             converged || @warn "chains have not converged after $kept points per chain" d.min_ess d.max_rhat
-            return (; chains, diagnostics = d, n = kept, converged)
+            return (; chains, diagnostics = d, n = kept, converged, fixed = fixed_coordinates(geometry(model)))
         end
         kept = min(2kept, max_n)
     end

@@ -81,17 +81,23 @@ function extreme_zpoints(w::Warmup)
     end
 end
 
+# The coordinates that do not vary on the slice of a warmup: explicit equalities, equal bounds,
+# and the equalities that `warmup` finds to hold over the polytope, within `atol`
+fixed_coordinates(w::Warmup) = findall(i -> all(iszero, view(w.transform, i, :)), axes(w.transform, 1))
+
 function Base.show(io::IO, w::Warmup)
     print(io, "Warmup on a ", size(w.transform, 2), "-dimensional slice of a ")
     print(io, nvars(w.polytope), "-variable polytope")
     w.rounded && print(io, ", rounded")
+    fixed = length(fixed_coordinates(w))
+    fixed > 0 && print(io, ", ", fixed, fixed == 1 ? " fixed coordinate" : " fixed coordinates")
     isempty(w.points) || print(io, ", with ", size(w.points, 2), " extreme points")
     return
 end
 
 """
     warmup([rng], P::Polytope; extremes = false, rounding = :ellipsoid,
-           optimizer = HiGHS.Optimizer, atol = 1e-6)
+           optimizer = HiGHS.Optimizer, atol = 1e-8)
 
 Prepare `P` for sampling and return a [`Warmup`](@ref) to [`sample`](@ref) from.
 
@@ -105,7 +111,17 @@ With `extremes = true`, solve `2n` linear programs, minimizing and maximizing ea
 `n` coordinates. The extreme points locate the constraints that hold with equality over all
 of `P`: a coordinate whose range is within `atol` of zero, or an inequality whose slack is
 within `atol` of zero at every extreme point. Chains move only in the directions that keep
-these equalities and `C * x .== d`. The `2n` programs cost far more for large `n`: 58 s for
+these equalities and `C * x .== d`, from a center that satisfies every constraint: the mean
+of the extreme points, with the equalities held at their values there.
+
+`atol` is in the units of the variables. A polytope only `atol` wide in some direction is
+treated as flat in it: its samples are held at the center's value there, an error of at
+most `atol`. The default of `1e-8`, as in PolytopeSamplerMatlab, is ten times the
+feasibility tolerance that `warmup` sets for HiGHS (`1e-9`), so only equalities that hold
+over the polytope are fixed; directions as thin as `1e-7` are sampled. With a larger `atol`,
+`warmup` warns when it fixes a direction wider than `1e-8`. The
+coordinates that do not vary are listed by `fixed` in the result of
+[`sample_until_converged`](@ref). The `2n` programs cost far more for large `n`: 58 s for
 `n = 200` with 1000 constraints, against 1.3 s for the whole warmup with
 `extremes = false`. [`ACHR`](@ref) uses the extreme points, and solves the `2n` programs on
 first use when the warmup was built without them.
@@ -127,7 +143,7 @@ each call builds its own model, so separate tasks may call `warmup` at the same 
 function warmup(
         rng::AbstractRNG, P::Polytope; extremes::Bool = false,
         rounding::Union{Bool, Symbol} = :ellipsoid, optimizer = HiGHS.Optimizer,
-        atol::Real = 1.0e-6,
+        atol::Real = 1.0e-8,
     )
     rounding = rounding === true ? :ellipsoid : rounding === false ? :none : rounding
     rounding in (:ellipsoid, :samples, :none) ||
@@ -146,6 +162,12 @@ function warmup(
         round_polytope!(center, T, G, h; optimizer)
     elseif rounding === :samples
         round_by_samples!(rng, P, center, T, G, h; optimizer)
+    end
+    # Every sample keeps the center's values in the fixed directions, so a center outside the
+    # polytope would put every sample outside; PolyRound and PolytopeSamplerMatlab also stop here
+    violation = constraint_violation(P, center)
+    if violation > THIN_TOL * max(1.0, norm(center, Inf))
+        throw(ErrorException("warmup: the center violates a constraint of the polytope by $(violation); try a smaller atol or a different optimizer"))
     end
     zpoints = isempty(T) ? zeros(0, size(points, 2)) : T \ (points .- center)
     radius = isempty(T) ? 0.0 : last(chebyshev_center(G, h, optimizer))
@@ -173,18 +195,26 @@ function coordinate_extremes(P::Polytope, optimizer)
     return unique(points; dims = 2)
 end
 
-# The extreme points of each coordinate, a center on the equalities, and a basis of the
-# directions in which the polytope has width
+# The extreme points of each coordinate, a center inside the polytope, and a basis of the
+# directions in which the polytope has width. The center is the mean of the extreme points, a
+# convex combination of points of the polytope, and the coordinates and inequalities found to
+# hold with equality are fixed at their values there, so the center satisfies every constraint
+# to the solver's tolerance; a center moved onto the midpoints of their ranges could leave the
+# polytope by up to `atol`.
 function extreme_slice(P::Polytope, optimizer, atol)
     points = coordinate_extremes(P, optimizer)
-    Ceq, deq = active_equalities(P, points, atol)
     center = vec(mean(points; dims = 2))
-    # Move the center onto the equalities, which the linear programs satisfy only to the
-    # solver's tolerance
+    Ceq, deq, width = active_equalities(P, points, center, atol)
+    # Move the center onto `C * x .== d`, which the linear programs satisfy only to the
+    # solver's tolerance; the other rows hold at the center already
     if !isempty(deq)
         center .-= pinv(Ceq) * (Ceq * center .- deq)
     end
-    T = direction_basis(Ceq, points, center, atol)
+    T, dropped = direction_basis(Ceq, points, center, atol)
+    width = max(width, dropped)
+    if width > THIN_TOL
+        @warn "warmup: fixed directions in which the polytope has width up to $(width), below atol = $(atol); its samples do not vary in them. Pass a smaller atol, such as 1e-9, to sample them." maxlog = 1
+    end
     return points, center, T
 end
 
@@ -222,8 +252,7 @@ function isbounded(G, optimizer)
     m, k = size(G)
     m == 0 && return k == 0
     rank(G) == k || return false
-    model = Model(optimizer)
-    set_silent(model)
+    model = lp(optimizer)
     y = @variable(model, [1:m], lower_bound = 1)
     @constraint(model, G' * y .== 0)
     optimize!(model)
@@ -259,30 +288,46 @@ function reduced_constraints(P::Polytope, center, T; clamp::Bool = true)
     return G, rhs
 end
 
-# The equalities `C * x .== d` with the fixed coordinates and the inequalities tight at every
-# extreme point added as rows.
-function active_equalities(P::Polytope, points, atol)
+# The equalities `C * x .== d` with the coordinates whose range is within `atol` and the
+# inequalities whose slack is within `atol` at every extreme point added as rows, held at their
+# values at `center`; and the largest such range or slack, which is the solver's tolerance for
+# equalities that hold over the polytope and more for directions that are only thin
+function active_equalities(P::Polytope, points, center, atol)
     n = nvars(P)
     rows = [P.C]
     rhs = [P.d]
+    width = 0.0
     for i in 1:n
         lo, hi = extrema(view(points, i, :))
-        if hi - lo <= atol
+        if hi - lo <= atol && P.lower[i] != P.upper[i]
             e = zeros(1, n)
             e[i] = 1
             push!(rows, e)
-            push!(rhs, [(lo + hi) / 2])
+            push!(rhs, [center[i]])
+            width = max(width, hi - lo)
         end
     end
     slack = P.b .- P.A * points
     for i in eachindex(P.b)
-        if maximum(view(slack, i, :)) <= atol
+        largest = maximum(view(slack, i, :))
+        if largest <= atol
             push!(rows, P.A[i:i, :])
-            push!(rhs, P.b[i:i])
+            push!(rhs, [dot(view(P.A, i, :), center)])
+            r = norm(view(P.A, i, :))
+            r > 0 && (width = max(width, largest / r))
         end
     end
-    return reduce(vcat, rows), reduce(vcat, rhs)
+    fixed = findall(P.lower .== P.upper)
+    if !isempty(fixed)
+        push!(rows, Matrix{Float64}(I, n, n)[fixed, :])
+        push!(rhs, P.lower[fixed])
+    end
+    return reduce(vcat, rows), reduce(vcat, rhs), width
 end
+
+# Ranges and slacks up to this are the solver's tolerance on a constraint that holds with
+# equality over the polytope; above it, and up to `atol`, the polytope is thin but not flat
+const THIN_TOL = 1.0e-8
 
 # A constraint row whose norm on the slice is below this fraction of its norm in `x` is
 # constant on the slice
@@ -297,8 +342,11 @@ function direction_basis(Ceq, points, center, atol)
     n = length(center)
     Z = isempty(Ceq) ? Matrix{Float64}(I, n, n) : nullspace(Ceq)
     F = svd(Z' * (points .- center))
-    k = count(>(sqrt(size(points, 2)) * atol), F.S)
+    m = size(points, 2)
+    k = count(>(sqrt(m) * atol), F.S)
     basis = Z * F.U[:, 1:k]
     basis[abs.(basis) .< ZERO_TOL] .= 0
-    return basis
+    # the spread of the points in the directions left out, comparable to a range
+    dropped = k < length(F.S) ? F.S[k + 1] / sqrt(m) : 0.0
+    return basis, dropped
 end

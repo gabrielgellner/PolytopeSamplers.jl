@@ -7,7 +7,8 @@ using LogDensityProblems: LogDensityProblems, LogDensityOrder
 using JuMP: @constraint, @objective, @variable, DUAL_INFEASIBLE, INFEASIBLE,
     INFEASIBLE_OR_UNBOUNDED,
     MAX_SENSE, MIN_SENSE, Model,
-    is_solved_and_feasible, optimize!, set_lower_bound, set_silent, set_upper_bound,
+    is_solved_and_feasible, optimize!, set_attribute, set_lower_bound, set_silent, set_upper_bound,
+    solver_name,
     termination_status, value
 using LinearAlgebra: Diagonal, Hermitian, I, Symmetric, UpperTriangular, cholesky, cholesky!, diag, dot, eigvals, issuccess, ldiv!, lmul!, logdet, lu!, mul!, norm,
     normalize!, nullspace, pinv, rank, svd, transpose!

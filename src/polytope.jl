@@ -75,11 +75,43 @@ end
 
 Base.in(x::AbstractVector{<:Real}, P::Polytope) = isfeasible(P, x)
 
+# The largest amount by which `x` violates a bound, an inequality or an equality of `P`, with
+# inequalities and equalities measured in units of `x` (divided by the norm of their row)
+function constraint_violation(P::Polytope, x)
+    v = 0.0
+    for i in eachindex(x)
+        v = max(v, P.lower[i] - x[i], x[i] - P.upper[i])
+    end
+    for i in eachindex(P.b)
+        a = view(P.A, i, :)
+        r = norm(a)
+        v = max(v, r > 0 ? (dot(a, x) - P.b[i]) / r : -P.b[i])
+    end
+    for i in eachindex(P.d)
+        c = view(P.C, i, :)
+        r = norm(c)
+        v = max(v, r > 0 ? abs(dot(c, x) - P.d[i]) / r : abs(P.d[i]))
+    end
+    return v
+end
+
+# A silent JuMP model. For HiGHS, the primal and dual feasibility tolerances are tightened from
+# 1e-7 to 1e-9, as PolyRound does for Gurobi, so that solver error does not pass for a direction
+# in which the polytope has width above the `atol` of `warmup`.
+function lp(optimizer)
+    model = Model(optimizer)
+    set_silent(model)
+    if solver_name(model) == "HiGHS"
+        set_attribute(model, "primal_feasibility_tolerance", 1.0e-9)
+        set_attribute(model, "dual_feasibility_tolerance", 1.0e-9)
+    end
+    return model
+end
+
 # A JuMP model with the constraints of `P` and no objective. Constraints are built from the
 # nonzero coefficients, as the matrices of food web problems are mostly zeros.
 function lp_model(P::Polytope, optimizer)
-    model = Model(optimizer)
-    set_silent(model)
+    model = lp(optimizer)
     n = nvars(P)
     x = @variable(model, [1:n])
     for i in 1:n
