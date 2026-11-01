@@ -57,9 +57,11 @@ mutable struct BilliardState
     const trajectory_length::Float64
     const max_reflections::Int
     steps::Int # steps taken, for refreshing the slacks
+    reflections::Int # reflections in the last step
 end
 
 AbstractMCMC.getparams(c::BilliardState) = copy(c.x)
+AbstractMCMC.getstats(c::BilliardState) = (; n_reflections = c.reflections)
 
 function chain_state(::BilliardWalk, ::Target)
     throw(ArgumentError("BilliardWalk samples only the uniform distribution"))
@@ -72,7 +74,7 @@ function chain_state(method::BilliardWalk, w::Warmup)
     Gt, GG = reflection_matrices(w)
     return BilliardState(
         method, w, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k), Gt, GG,
-        L, something(method.max_reflections, 1000 * k), 0,
+        L, something(method.max_reflections, 1000 * k), 0, 0,
     )
 end
 
@@ -126,6 +128,7 @@ end
 # zero, which keeps the walk reversible; clamping slacks at zero in `first_hit` keeps
 # rounding error from moving it outside.
 function step!(rng::AbstractRNG, c::BilliardState)
+    c.reflections = 0
     isempty(c.z) && return update_x!(c)
     w = c.warmup
     randn!(rng, c.v)
@@ -144,6 +147,7 @@ function step!(rng::AbstractRNG, c::BilliardState)
         T -= λ
         c.slack[facet] = 0.0
         reflect!(c, facet)
+        c.reflections += 1
     end
     copyto!(c.z, c.zstart)
     update_slack!(c)

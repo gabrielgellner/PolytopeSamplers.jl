@@ -12,14 +12,14 @@ AbstractMCMC.setprogress!(false)
     end
     @testset "ExplicitImports" begin
         # HiGHS documents `HiGHS.Optimizer` as its JuMP entry point, and AbstractMCMC
-        # documents `step`, `bundle_samples`, `getparams` and its abstract types as the
-        # interface for samplers, but neither declares them `public`
+        # documents `step`, `bundle_samples`, `getparams`, `getstats` and its abstract types as
+        # the interface for samplers, but neither declares them `public`
         test_explicit_imports(
             PolytopeSamplers;
             all_explicit_imports_are_public = (;
                 ignore = (:AbstractMCMCEnsemble, :AbstractModel, :AbstractSampler),
             ),
-            all_qualified_accesses_are_public = (; ignore = (:Optimizer, :step, :bundle_samples, :getparams)),
+            all_qualified_accesses_are_public = (; ignore = (:Optimizer, :step, :bundle_samples, :getparams, :getstats)),
         )
     end
     include("polytope.jl")

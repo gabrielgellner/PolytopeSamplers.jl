@@ -27,6 +27,19 @@ function LogDensityProblems.logdensity_and_gradient(g::Gaussian, x)
 end
 
 @testset "non-uniform targets" begin
+    @testset "getstats with a density ($m)" for m in density_methods
+        P = Polytope(zeros(2), ones(2))
+        t = Target(P, Gaussian([0.3, 0.6], 0.5))
+        c = PolytopeSamplers.start_state(m, t, [0.5, 0.5])
+        rng = Xoshiro(1)
+        for _ in 1:50
+            PolytopeSamplers.step!(rng, c)
+            s = AbstractMCMC.getstats(c)
+            @test s.lp ≈ LogDensityProblems.logdensity(t.logdensity, c.x)
+            m isa Union{HitAndRun, CoordinateHitAndRun} && @test s.n_evaluations >= 1
+        end
+    end
+
     @testset "Target" begin
         P = Polytope(zeros(3), ones(3))
         t = Target(P, x -> -sum(x))

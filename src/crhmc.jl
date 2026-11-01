@@ -121,6 +121,8 @@ mutable struct CRHMCState{D}
     stuck::Bool # steps kept failing at the smallest step size
     proposed::Int
     accepted::Int
+    last_accepted::Bool
+    last_step_size::Float64 # step size of the last step
 end
 
 # Warn, once per chain, when a chain may be stuck; called outside the allocation-free step
@@ -135,6 +137,19 @@ end
 chain_state(method::CRHMC, w::Warmup) = crhmc_state(method, w, nothing)
 
 AbstractMCMC.getparams(c::CRHMCState) = copy(c.x)
+function AbstractMCMC.getstats(c::CRHMCState{Nothing})
+    return (;
+        is_accept = c.last_accepted, acceptance_rate = c.accepted / max(c.proposed, 1),
+        step_size = c.last_step_size,
+    )
+end
+# The state keeps no log density, so this evaluates it once, outside the step
+function AbstractMCMC.getstats(c::CRHMCState)
+    return (;
+        lp = logdensity_z(c.density, c.z), is_accept = c.last_accepted,
+        acceptance_rate = c.accepted / max(c.proposed, 1), step_size = c.last_step_size,
+    )
+end
 
 function chain_state(method::CRHMC, t::Target)
     density = chain_density(t)
@@ -157,7 +172,7 @@ function crhmc_state(method::CRHMC, w::Warmup, density)
         fill(NaN, k), zeros(m), zeros(m), # metric_z, s, Gw
         zeros(m, k), zeros(k, k), zeros(k, m), 0.0, false, # B, U, X, logdet, metric_ok
         h, 1 - min(1, h / method.effective_step_size), 0.0, 0.0, false, # h, momentum, …
-        0, 0.0, 0.0, 0.0, false, false, 0, 0,
+        0, 0.0, 0.0, 0.0, false, false, 0, 0, false, NaN,
     )
 end
 
@@ -374,6 +389,8 @@ function step!(rng::AbstractRNG, c::CRHMCState)
     end
     c.proposed += 1
     accept = rand(rng) < prob
+    c.last_accepted = accept
+    c.last_step_size = h
     if accept
         copyto!(c.z, c.z2)
         copyto!(c.p, c.p2)

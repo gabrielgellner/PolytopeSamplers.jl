@@ -76,12 +76,19 @@ mutable struct BarrierState{M <: BarrierWalk, D}
     ready::Bool # whether U and logdet belong to z
     proposed::Int
     accepted::Int
+    last_accepted::Bool
 end
 
 chain_state(method::BarrierWalk, t::Target) = barrier_state(method, t.warmup, chain_density(t))
 chain_state(method::BarrierWalk, w::Warmup) = barrier_state(method, w, nothing)
 
 AbstractMCMC.getparams(c::BarrierState) = copy(c.x)
+function AbstractMCMC.getstats(c::BarrierState{<:BarrierWalk, Nothing})
+    return (; is_accept = c.last_accepted, acceptance_rate = c.accepted / max(c.proposed, 1))
+end
+function AbstractMCMC.getstats(c::BarrierState)
+    return (; lp = c.logp, is_accept = c.last_accepted, acceptance_rate = c.accepted / max(c.proposed, 1))
+end
 
 function barrier_state(method::BarrierWalk, w::Warmup, density)
     k = size(w.transform, 2)
@@ -90,7 +97,7 @@ function barrier_state(method::BarrierWalk, w::Warmup, density)
     return BarrierState(
         method, w, density, 0.0, zeros(k), copy(w.center), zeros(k), copy(w.h), zeros(m), zeros(k), zeros(k),
         zeros(m, k), zeros(k, k), zeros(k, m), zeros(k, k), zeros(k, k), 0.0, sqrt(D), false,
-        0, 0,
+        0, 0, false,
     )
 end
 
@@ -166,6 +173,7 @@ function step!(rng::AbstractRNG, c::BarrierState)
         inside &= c.slackprop[i] > 0
     end
     c.proposed += 1
+    c.last_accepted = false
     if inside
         logdet = factor_hessian!(c.Uprop, c, c.slackprop)
         if isfinite(logdet)
@@ -180,6 +188,7 @@ function step!(rng::AbstractRNG, c::BarrierState)
                 c.U, c.Uprop = c.Uprop, c.U
                 c.logdet = logdet
                 c.accepted += 1
+                c.last_accepted = true
             end
         end
     end

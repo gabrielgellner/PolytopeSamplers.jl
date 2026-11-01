@@ -7,6 +7,9 @@ using MCMCChains: Chains
 using Random: Xoshiro
 using Statistics: mean, var
 
+# The statistics of one step from the pentagon's warmup
+step_stats(m, w) = AbstractMCMC.getstats(last(AbstractMCMC.step(Xoshiro(1), w, m)))
+
 # A pentagon from the original test of the package, M * x ≤ f in the box [0, 5.5]^2
 const M = [3 / 2 -1; 1 1; -2 -1]
 const f = [5.0, 10.0, -3.0]
@@ -89,23 +92,43 @@ const fast_methods = filter(m -> !(m isa Union{DikinWalk, VaidyaWalk}), methods)
         X = sample(Xoshiro(1), w, m, 20; discard_initial = 3, thinning = 2)
         c = sample(Xoshiro(1), w, m, 20; discard_initial = 3, thinning = 2, chain_type = Chains)
         @test c isa Chains
-        @test Array(c) == X'
-        @test names(c) == [Symbol("x[1]"), Symbol("x[2]")]
+        @test Array(c[:, c.name_map.parameters, :]) == X'
+        @test c.name_map.parameters == [Symbol("x[1]"), Symbol("x[2]")]
+        @test c.name_map.internals == collect(keys(step_stats(m, w)))
         @test range(c) == 4:2:42
         chains = sample(Xoshiro(1), w, m, MCMCSerial(), 20, 3)
         c = sample(Xoshiro(1), w, m, MCMCSerial(), 20, 3; chain_type = Chains, param_names = ["a", "b"])
-        @test size(c) == (20, 2, 3)
-        @test names(c) == [:a, :b]
-        @test all(j -> c.value[:, :, j] == chains[j]', 1:3)
+        @test size(c, 3) == 3
+        @test c.name_map.parameters == [:a, :b]
+        @test all(j -> c.value[:, [:a, :b], j] == chains[j]', 1:3)
         @test_throws DimensionMismatch sample(Xoshiro(1), w, m, 5; chain_type = Chains, param_names = ["a"])
+    end
+
+    @testset "getstats ($m)" for m in methods
+        w = warmup(pentagon)
+        c = PolytopeSamplers.start_state(m, w, [3.0, 4.0])
+        rng = Xoshiro(1)
+        stats = [AbstractMCMC.getstats(PolytopeSamplers.step!(rng, c)) for _ in 1:500]
+        if m isa Union{DikinWalk, VaidyaWalk, CRHMC}
+            @test all(s -> s.is_accept isa Bool, stats)
+            @test last(stats).acceptance_rate ≈ mean(s -> s.is_accept, stats)
+            @test 0 < last(stats).acceptance_rate <= 1
+        end
+        m isa CRHMC && @test all(s -> s.step_size > 0, stats)
+        if m isa BilliardWalk
+            @test all(s -> s.n_reflections >= 0, stats)
+            @test any(s -> s.n_reflections > 0, stats)
+        end
+        m isa Union{HitAndRun, ACHR, CoordinateHitAndRun} && @test isempty(last(stats))
     end
 
     @testset "getparams ($m)" for m in methods
         w = warmup(pentagon)
-        x, c = AbstractMCMC.step(Xoshiro(1), w, m; initial_params = [3.0, 4.0])
-        @test AbstractMCMC.getparams(c) == x
-        @test AbstractMCMC.getparams(w, c) == x
+        t, c = AbstractMCMC.step(Xoshiro(1), w, m; initial_params = [3.0, 4.0])
+        @test AbstractMCMC.getparams(c) == t.x
+        @test AbstractMCMC.getparams(w, c) == t.x
         @test AbstractMCMC.getparams(c) !== c.x
+        @test t.stats == AbstractMCMC.getstats(c)
     end
 
     @testset "discard_initial and thinning ($m)" for m in methods
